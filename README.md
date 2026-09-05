@@ -201,3 +201,7 @@ See [docs/DESIGN.md](docs/DESIGN.md) for the route comparison and rationale.
 ## Field mapping
 
 See [docs/MAPPING.md](docs/MAPPING.md) for the full category and field conversion tables.
+
+## Companion iOS app
+
+[docs/IOS-APP-SPEC.md](docs/IOS-APP-SPEC.md) specifies "Bridge", a small iOS 26 app that receives a CXP transfer from 1Password, shows an authoritative inventory, routes a selection to Bitwarden, and produces a verification checklist. Not yet built; the spec explains the scope cut (no Bitwarden crypto), the security model, and the M0 spike that gates the project.
