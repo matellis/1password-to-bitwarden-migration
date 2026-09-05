@@ -1,0 +1,30 @@
+{
+  "accounts": [
+    {
+      "name": "family",
+      "puxPath": "exports/<family-account-uuid>.1pux",
+      "bitwardenOrgId": "<family-org-uuid>",
+      "onExisting": "refuse",
+      "skipVaultTypes": ["P"],
+      "vaultRename": {}
+    },
+    {
+      "name": "team",
+      "puxPath": "exports/<team-account-uuid>.1pux",
+      "bitwardenOrgId": "<team-org-uuid>",
+      "onExisting": "refuse",
+      "skipVaultTypes": ["P"],
+      "vaultRename": {
+        "Shared": "All-Staff"
+      }
+    },
+    {
+      "name": "individual",
+      "puxPath": "exports/<individual-account-uuid>.1pux",
+      "bitwardenOrgId": "<individual-org-uuid>",
+      "onExisting": "refuse",
+      "skipVaultTypes": ["P"],
+      "vaultRename": {}
+    }
+  ]
+}
