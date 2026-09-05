@@ -13,6 +13,12 @@ bw login/unlock flags confirmed via --help (bw 2026.8.0):
   bw unlock --raw          print only the session key to stdout
   bw unlock --passwordenv  env var name whose value is the master password
 
+bw config server confirmed via --help (bw 2026.8.0):
+  bw config server         print the currently configured server URL
+  bw config server <url>   set the server URL (global CLI state)
+  No per-invocation env var override exists; state is global.
+  Switching server invalidates any existing session.
+
 SSH key type 5 is supported in bw 2026.8.0.
 """
 
@@ -38,6 +44,66 @@ class NotLoggedIn(BWError):
 
 class NotUnlocked(BWError):
     pass
+
+
+_SERVER_MAP: dict[str, str] = {
+    "us": "https://vault.bitwarden.com",
+    "eu": "https://vault.bitwarden.eu",
+}
+
+
+def resolve_server(spec: str) -> str:
+    """Return the canonical server URL for spec.
+
+    Accepts 'us', 'eu', or any full https:// URL.  Raises BWError for anything else.
+    """
+    if spec in _SERVER_MAP:
+        return _SERVER_MAP[spec]
+    if spec.startswith("https://"):
+        return spec
+    raise BWError(
+        f"Invalid bitwardenServer {spec!r}: must be 'us', 'eu', or a full https:// URL"
+    )
+
+
+def _current_server() -> str:
+    """Return the server URL currently configured in the bw CLI."""
+    result = subprocess.run(
+        [_bw_path(), "config", "server"],
+        capture_output=True,
+        text=True,
+        env=os.environ.copy(),
+    )
+    if result.returncode != 0:
+        raise BWError(f"bw config server failed: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def ensure_server(spec: str) -> None:
+    """Switch the bw CLI server if it does not match spec.
+
+    Prints a note to stderr when switching.  Clears BW_SESSION when the server
+    changes because the existing session is no longer valid for the new server.
+    """
+    desired = resolve_server(spec)
+    current = _current_server()
+    if current == desired:
+        return
+    print(f"Bitwarden server: {desired}", file=sys.stderr)
+    result = subprocess.run(
+        [_bw_path(), "config", "server", desired],
+        capture_output=True,
+        text=True,
+        env=os.environ.copy(),
+    )
+    if result.returncode != 0:
+        raise BWError(f"bw config server failed: {result.stderr.strip()}")
+    if os.environ.get("BW_SESSION"):
+        print(
+            "Bitwarden server changed — existing session is no longer valid; will re-authenticate.",
+            file=sys.stderr,
+        )
+        del os.environ["BW_SESSION"]
 
 
 def _run(args: list[str], input_data: str | None = None) -> str:
@@ -107,7 +173,7 @@ def _spawn(cmd: list[str], *, capture_stdout: bool = False) -> str:
     return result.stdout.strip() if capture_stdout else ""
 
 
-def ensure_session() -> None:
+def ensure_session(server: str = "us") -> None:
     """Log in and unlock Bitwarden, storing the session key in os.environ['BW_SESSION'].
 
     Non-interactive env vars (all optional):
@@ -116,7 +182,11 @@ def ensure_session() -> None:
 
     2FA is handled by the interactive terminal flow when env vars are absent.
     The session key is never printed or written to disk.
+
+    server: 'us' (default), 'eu', or a full https:// URL.  ensure_server() runs
+    first so a server switch surfaces as unauthenticated and triggers login.
     """
+    ensure_server(server)
     bw = _bw_path()
     vault_status = _bw_status()
 

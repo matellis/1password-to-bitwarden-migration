@@ -525,12 +525,13 @@ def main() -> None:
             sys.exit(f"Account '{args.account}' not found in config.")
 
     print("import.py — Bitwarden per-vault import")
-    bwcli.ensure_session()
-    print("Syncing vault...")
-    bwcli.sync()
 
     for account in accounts:
         name = account.get("name", "unknown")
+        server = account.get("bitwardenServer", "us")
+        bwcli.ensure_session(server)
+        print("Syncing vault...")
+        bwcli.sync()
         personal = _is_personal(account, args)
         work_dir = Path("work") / name
         manifest_path = work_dir / "manifest.json"

@@ -329,14 +329,15 @@ def main() -> None:
             sys.exit(f"Account '{args.account}' not found in config.")
 
     print("verify.py — field-level 1pux vs Bitwarden verification")
-    bwcli.ensure_session()
-    bwcli.sync()
 
     all_pass = True
     results: list[tuple[str, str, bool]] = []
 
     for account in accounts:
         name = account.get("name", "unknown")
+        server = account.get("bitwardenServer", "us")
+        bwcli.ensure_session(server)
+        bwcli.sync()
         policy = account.get("onExisting", "refuse")
         personal = _is_personal(account, args)
         work_dir = Path("work") / name

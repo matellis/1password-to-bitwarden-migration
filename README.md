@@ -71,9 +71,22 @@ cp config.example.json config.json
 Fill in:
 - `puxPath` — path to each `.1pux` file
 - `bitwardenOrgId` — Bitwarden org UUID for that account
+- `bitwardenServer` — which Bitwarden instance this account lives in (see below)
 - `onExisting` — what to do if a collection already has items (`refuse`, `skip`, `allow`)
 - `skipVaultTypes` — vault types to ignore (default `["P"]` skips Private vaults)
 - `vaultRename` — optional map of `{"1Password vault name": "Bitwarden collection name"}`
+
+**`bitwardenServer` values**
+
+| Value | Server |
+| --- | --- |
+| `"us"` | `https://vault.bitwarden.com` (US cloud, default when key is absent) |
+| `"eu"` | `https://vault.bitwarden.eu` (EU cloud) |
+| `"https://..."` | Self-hosted — any full `https://` URL pointing at your instance |
+
+JSON has no comment syntax, so the key serves as its own documentation.  Omitting `bitwardenServer` is identical to setting it to `"us"`.
+
+**Accounts spanning regions:** the bw CLI's server setting is global.  When you run `import.py` or `verify.py` without `--account`, the scripts iterate over all accounts and switch the CLI's server as they go.  You will be asked to log in once per region.  If you have accounts in both US and EU clouds, running per-account (`--account family`) is cleaner than running across all accounts in one pass.
 
 ### 4. Split (offline, safe to re-run)
 

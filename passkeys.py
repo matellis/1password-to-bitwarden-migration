@@ -444,6 +444,10 @@ def main() -> None:
                             "Compare loaded inventory (--manual/--bridge) against Bitwarden "
                             "(--from-bitwarden) and print missing/unexpected passkeys. Always exits 0."
                         ))
+    parser.add_argument(
+        "--server", metavar="SPEC", default="us",
+        help="Bitwarden server for --from-bitwarden: 'us' (default), 'eu', or full https:// URL",
+    )
     args = parser.parse_args()
 
     if not (args.from_pux or args.from_bitwarden or args.manual or args.bridge or args.gap_report):
@@ -476,7 +480,7 @@ def main() -> None:
 
     if args.from_bitwarden:
         from lib import bwcli as _bwcli
-        _bwcli.ensure_session()
+        _bwcli.ensure_session(args.server)
         account_name = args.account or "bitwarden"
         print("Syncing and checking Bitwarden for passkey-bearing items...")
         entries = from_bitwarden(account_name)

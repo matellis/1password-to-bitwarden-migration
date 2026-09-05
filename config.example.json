@@ -4,6 +4,7 @@
       "name": "family",
       "puxPath": "exports/<family-account-uuid>.1pux",
       "bitwardenOrgId": "<family-org-uuid>",
+      "bitwardenServer": "us",
       "onExisting": "refuse",
       "skipVaultTypes": ["P"],
       "vaultRename": {}
@@ -12,6 +13,7 @@
       "name": "team",
       "puxPath": "exports/<team-account-uuid>.1pux",
       "bitwardenOrgId": "<team-org-uuid>",
+      "bitwardenServer": "us",
       "onExisting": "refuse",
       "skipVaultTypes": ["P"],
       "vaultRename": {
@@ -22,6 +24,7 @@
       "name": "individual",
       "puxPath": "exports/<individual-account-uuid>.1pux",
       "bitwardenOrgId": "<individual-org-uuid>",
+      "bitwardenServer": "us",
       "onExisting": "refuse",
       "skipVaultTypes": ["P"],
       "vaultRename": {}
@@ -30,6 +33,7 @@
       "name": "family-private",
       "mode": "personal",
       "puxPath": "exports/<family-account-uuid>.1pux",
+      "bitwardenServer": "us",
       "onExisting": "refuse",
       "vaultRename": {}
     }
