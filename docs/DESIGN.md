@@ -34,9 +34,9 @@ The three policies exist because teams frequently have partially-populated Bitwa
 
 Personal mode uses a separate ledger file (`state/<account>-personal.json`) so org-mode and personal-mode runs for the same account don't interfere.
 
-## Two routes, recoverable overlap
+## Script import plus CXP passkey layer
 
-For any given vault there are two migration routes.
+Every vault uses the script route. Vaults containing passkeys additionally get a CXP transfer afterwards, per person, to add the passkeys the script route cannot carry.
 
 **Script route** (`split.py` / `import.py`): full-fidelity — moves all item types including documents, file attachments, secure notes, credit cards, and identities.  Cannot move passkeys.  Works entirely on desktop from a `.1pux` export.
 

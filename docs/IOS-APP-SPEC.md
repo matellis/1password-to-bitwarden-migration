@@ -42,8 +42,8 @@ Everything else is the desktop toolkit's job.
 - Re-export the selection via CXP to a user-chosen destination app (Bitwarden first).
 - Generate a checklist JSON of transferred items (titles, usernames, URLs, credential
   types; never secrets) and an on-device checklist view. The JSON does triple duty:
-  human checklist on the phone, verification input for `passkeys.py`, and an exclusion
-  list for `import.py --exclude` (see "Integration").
+  human checklist on the phone, verification input for `passkeys.py`, and a passkey
+  inventory for `split.py --mark-passkeys` (see "Integration").
 - Zero knowledge, zero network: the app never connects to the internet.
 
 ## Why whole items, not passkey-only
@@ -53,7 +53,9 @@ A passkey in Bitwarden is not a standalone object; it lives inside a login item
 merge-into-existing-item mechanism. Exporting passkey credentials alone would leave two
 half-items per site — the script-imported login (password, TOTP) and a CXP-created orphan
 (passkey only) — with autofill offering both forever. Moving the whole item keeps it
-coherent, and the exclusion list stops the desktop side from duplicating it.
+coherent. The duplicate it creates against the script-imported copy is resolved
+afterwards by `adopt.py` or manual deletion, and `split.py --mark-passkeys` annotates
+the script-imported copies so the pairs are easy to find.
 
 ## Non-goals (v1)
 
@@ -83,7 +85,7 @@ coherent, and the exclusion list stops the desktop side from duplicating it.
 
 `CredentialItem`: id, title, site/rpId, username, URLs, flags (`hasPassword`,
 `hasPasskey`, `hasTOTP`), source grouping (vault/collection name if the payload carries
-it), routing decision (include/exclude), checklist state (pending/confirmed).
+it), re-export selection (include/exclude), checklist state (pending/confirmed).
 
 Only non-secret fields are ever written to disk. Passwords, passkey material and TOTP
 seeds exist only as in-memory API objects for the duration of a session.
@@ -121,13 +123,13 @@ seeds exist only as in-memory API objects for the duration of a session.
 
 - Shared checklist JSON schema (versioned): account label, source app, entries of
   {title, username, primary URL, credential types, state}.
-- `import.py --exclude <file.json>` filters the checklist's items out of the bulk import,
-  matched by the existing title + username + primary-URI fingerprint. This is what makes
-  the two routes safe to combine on the same vault: Bridge moves the passkey-bearing
-  items, the script moves everything else, neither duplicates the other.
-- Ordering: for a vault containing passkeys, run the Bridge leg first, then the script
-  with `--exclude`. The reverse order would need a delete-shaped prune pass, which is
-  deliberately not built.
+- The script route always imports every vault in full, regardless of Bridge. An
+  `--exclude` flag for `import.py` was considered and deliberately rejected: filtering
+  Bridge's items out of the script import would make the migration depend on the phone
+  leg actually happening, and a user who never runs it would silently lose those items.
+  Duplicates are recoverable (`adopt.py` or manual deletion); missing items are not.
+- Ordering does not matter. The script import can run before or after the Bridge leg;
+  `adopt.py` reconciles afterwards.
 - Bridge JSON is accepted directly by `split.py --mark-passkeys` and `passkeys.py --bridge`
   (and therefore `--gap-report`), so the checklist doubles as a passkey inventory for both
   the marker mechanism and gap reporting without any format conversion.

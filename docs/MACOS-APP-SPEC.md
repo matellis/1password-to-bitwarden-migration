@@ -161,8 +161,9 @@ from the `.1pux`). Right column: editable destination collection name.
 
 The app runs `split.py` (offline, no network) and renders the output as a native table:
 one row per vault, columns for item count, attachment count, and passkey presence.
-Vaults with passkeys show a distinct glyph and a note: "Contains passkeys — these will
-not move through this route. See the passkey handoff screen."
+Vaults with passkeys show a distinct glyph and a note: "Contains passkeys — the items
+will import, but the passkeys themselves cannot move through the script route. See the
+passkey handoff screen."
 
 A disclosure triangle per vault row expands to the item-type breakdown (logins, secure
 notes, cards, identities, SSH keys, documents).
@@ -230,8 +231,8 @@ with the pasted content and opens the resulting `work/passkeys/index.html` in th
 default browser. A note: "Open that page on your phone and check off each passkey as
 you transfer it."
 
-**Use the iOS companion.** A plain-language description of Bridge and the CXP transfer
-route, with a link to the iOS app's TestFlight or App Store page. If a Bridge checklist
+**Use the iOS companion.** A plain-language description of Bridge and the CXP passkey
+transfer, with a link to the iOS app's TestFlight or App Store page. If a Bridge checklist
 JSON is available (dragged in or picked with NSOpenPanel), a "Import checklist" button
 runs `passkeys.py --gap-report` and shows the result inline.
 
