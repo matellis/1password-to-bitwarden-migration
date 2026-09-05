@@ -30,15 +30,30 @@ act as a selective router between source and destination.
 
 ## Goals
 
+Bridge moves exactly one thing: **the login items that contain passkeys, moved whole**
+(password, TOTP and passkey together), plus the checklist JSON describing what moved.
+Everything else is the desktop toolkit's job.
+
 - Receive a CXP transfer initiated from 1Password (Settings > Advanced > Start Export).
 - Display a complete inventory of the transfer: per item, its title, site (rpId), username,
   URLs, and which credential types it carries (password, passkey, TOTP).
-- Let the user select all, none, or a subset, grouped and searchable.
+- Default selection: only items carrying a passkey. The user can adjust, but the default
+  is the point — see "Why whole items" below.
 - Re-export the selection via CXP to a user-chosen destination app (Bitwarden first).
-- Generate a checklist (JSON + on-device HTML-style view) of transferred items for
-  post-migration verification, shareable to the desktop via the share sheet so
-  `passkeys.py` can merge it.
+- Generate a checklist JSON of transferred items (titles, usernames, URLs, credential
+  types; never secrets) and an on-device checklist view. The JSON does triple duty:
+  human checklist on the phone, verification input for `passkeys.py`, and an exclusion
+  list for `import.py --exclude` (see "Integration").
 - Zero knowledge, zero network: the app never connects to the internet.
+
+## Why whole items, not passkey-only
+
+A passkey in Bitwarden is not a standalone object; it lives inside a login item
+(`login.fido2Credentials`). CXP import only ever creates items; there is no
+merge-into-existing-item mechanism. Exporting passkey credentials alone would leave two
+half-items per site — the script-imported login (password, TOTP) and a CXP-created orphan
+(passkey only) — with autofill offering both forever. Moving the whole item keeps it
+coherent, and the exclusion list stops the desktop side from duplicating it.
 
 ## Non-goals (v1)
 
@@ -106,6 +121,13 @@ seeds exist only as in-memory API objects for the duration of a session.
 
 - Shared checklist JSON schema (versioned): account label, source app, entries of
   {title, username, primary URL, credential types, state}.
+- `import.py --exclude <file.json>` filters the checklist's items out of the bulk import,
+  matched by the existing title + username + primary-URI fingerprint. This is what makes
+  the two routes safe to combine on the same vault: Bridge moves the passkey-bearing
+  items, the script moves everything else, neither duplicates the other.
+- Ordering: for a vault containing passkeys, run the Bridge leg first, then the script
+  with `--exclude`. The reverse order would need a delete-shaped prune pass, which is
+  deliberately not built.
 - `passkeys.py --from-bridge <file.json>` merges the app's checklist with the desktop
   inventory and `--from-bitwarden` results into one verification report.
 - README links both ways.
