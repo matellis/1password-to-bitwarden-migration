@@ -73,7 +73,7 @@ def _custom_fields_multiset(fields: list[dict]) -> Counter:
     )
 
 
-def _compare_item(source: dict, live: dict) -> list[str]:
+def _compare_item(source: dict, live: dict, expected_attach_count: int = 0) -> list[str]:
     diffs: list[str] = []
 
     src_login = source.get("login") or {}
@@ -108,12 +108,25 @@ def _compare_item(source: dict, live: dict) -> list[str]:
         if extra:
             diffs.append(f"  unexpected custom fields: {list(extra)}")
 
-    src_attach = len(source.get("attachments") or [])
     live_attach = len(live.get("attachments") or [])
-    if src_attach != live_attach:
-        diffs.append(f"  attachment count: expected {src_attach}, got {live_attach}")
+    if expected_attach_count != live_attach:
+        diffs.append(f"  attachment count: expected {expected_attach_count}, got {live_attach}")
 
     return diffs
+
+
+def _load_source_items(bulk_path: Path, attach_path: Path) -> list[tuple[dict, int]]:
+    """Return (item_dict, expected_attach_count) pairs from both source files."""
+    items: list[tuple[dict, int]] = []
+    if bulk_path.exists():
+        bulk_doc = _load_json(bulk_path)
+        for item in bulk_doc.get("items", []):
+            items.append((item, 0))
+    if attach_path.exists():
+        attach_doc = _load_json(attach_path)
+        for entry in attach_doc.get("items", []):
+            items.append((entry["item"], len(entry.get("files", []))))
+    return items
 
 
 def _verify_vault(
@@ -139,18 +152,13 @@ def _verify_vault(
         n = (it.get("name") or "").strip()
         live_by_name.setdefault(n, []).append(it)
 
-    source_items: list[dict] = []
-    if bulk_path.exists():
-        bulk_doc = _load_json(bulk_path)
-        source_items.extend(bulk_doc.get("items", []))
-    if attach_path.exists():
-        attach_doc = _load_json(attach_path)
-        source_items.extend(e["item"] for e in attach_doc.get("items", []))
+    source_items = _load_source_items(bulk_path, attach_path)
 
     if policy == "skip" and ledger_entry:
         expected_count = ledger_entry.get("importedCount", len(source_items))
     else:
         expected_count = len(source_items)
+    # source_items is a list of (item, attach_count) tuples; len() is still correct.
 
     live_count = len(live_items)
     if policy == "skip":
@@ -161,21 +169,21 @@ def _verify_vault(
         if live_count != expected_count:
             issues.append(f"Count: expected {expected_count}, got {live_count}")
 
-    src_title_counter = Counter((it.get("name") or "").strip() for it in source_items)
+    src_title_counter = Counter((it.get("name") or "").strip() for it, _ in source_items)
     live_title_counter = Counter((it.get("name") or "").strip() for it in live_items)
 
     missing_titles = src_title_counter - live_title_counter
     if missing_titles and policy != "skip":
         issues.append(f"Missing titles: {dict(missing_titles)}")
 
-    for src_item in source_items:
+    for src_item, expected_attach_count in source_items:
         name = (src_item.get("name") or "").strip()
         candidates = live_by_name.get(name, [])
         if not candidates:
             if policy != "skip":
                 issues.append(f"Item not found: {name!r}")
             continue
-        item_diffs = _compare_item(src_item, candidates[0])
+        item_diffs = _compare_item(src_item, candidates[0], expected_attach_count)
         if item_diffs:
             issues.append(f"Item {name!r} field mismatches:")
             issues.extend(item_diffs)
@@ -191,13 +199,16 @@ def _verify_vault(
 
 
 def _op_check(pux_path: Path, account_name: str) -> None:
-    import subprocess, shutil
+    import subprocess, shutil, zipfile as _zipfile
     op = shutil.which("op")
     if not op:
         print("  --op: 'op' CLI not found on PATH, skipping 1Password cross-check.")
         return
 
-    export_data, _ = onepux.parse_export(pux_path, Path("/tmp/_verify_op_files"))
+    # Read only export.data from the zip — attachment files are not needed here
+    # and extracting them to /tmp would leave decrypted data on disk.
+    with _zipfile.ZipFile(pux_path) as zf:
+        export_data = json.loads(zf.read("export.data"))
     vault_list = onepux.vaults(export_data)
 
     print(f"\n  1Password cross-check (op CLI) for account: {account_name}")

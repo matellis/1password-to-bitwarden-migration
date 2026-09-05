@@ -5,8 +5,10 @@ Reads config.json (or --config PATH), uses the state ledger in state/<account>.j
 to track which vaults have already been imported.  Respects the onExisting policy
 (refuse / skip / allow) per account.
 
-Does NOT call bw login or bw import commands that cannot be reversed.
-All Bitwarden writes are guarded by the ledger and onExisting checks.
+Calls bw import for bulk items, bw sync after each vault import to resolve the
+server-assigned collection ID, and bw create item + bw create attachment for
+items with file attachments.  All Bitwarden writes are guarded by the ledger and
+onExisting checks.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ import datetime
 import json
 import os
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -55,7 +58,15 @@ def _save_ledger(account_name: str, ledger: dict) -> None:
 
 
 def _now_iso() -> str:
-    return datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+def _resolve_real_collection_id(vault_name: str, org_id: str) -> str | None:
+    """Sync and return the server-assigned collection ID for vault_name, or None."""
+    bwcli.sync()
+    collections = bwcli.list_org_collections(org_id)
+    match = next((c for c in collections if c.get("name") == vault_name), None)
+    return match["id"] if match else None
 
 
 def _apply_on_existing_policy(
@@ -165,27 +176,39 @@ def _import_vault(
                 keep_items.append(item)
 
         if keep_items:
-            import tempfile, os
-            tmp = Path(tempfile.mktemp(suffix=".json", dir=str(work_dir)))
+            tmp = None
             old_umask = os.umask(0o177)
             try:
-                with open(tmp, "w") as f:
+                with tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".json", dir=str(work_dir), delete=False
+                ) as tf:
+                    tmp = Path(tf.name)
                     import_doc = dict(bulk_doc)
                     import_doc["items"] = keep_items
-                    json.dump(import_doc, f, indent=2)
+                    json.dump(import_doc, tf, indent=2)
                 os.chmod(tmp, 0o600)
                 print(f"  [{vault_name}] Bulk import: {len(keep_items)} items ({skipped_count} skipped)...")
                 bwcli.bulk_import(tmp, org_id)
                 imported_count += len(keep_items)
             finally:
                 os.umask(old_umask)
-                tmp.unlink(missing_ok=True)
+                if tmp is not None:
+                    tmp.unlink(missing_ok=True)
         else:
             print(f"  [{vault_name}] All {skipped_count} bulk items already exist, skipping bulk.")
     else:
         print(f"  [{vault_name}] Bulk import...")
         bwcli.bulk_import(bulk_path, org_id)
         imported_count += vault_entry["counts"]["bulk"]
+
+    # Resolve the server-assigned collection ID. bw import discards the
+    # placeholder uuid from the JSON and creates a new server-side id.
+    real_coll_id = _resolve_real_collection_id(vault_name, org_id)
+    if real_coll_id is None:
+        msg = f"Collection '{vault_name}' not found in org after sync."
+        print(f"  [{vault_name}] FAILED: {msg}")
+        ledger["failures"][vault_name] = [{"error": msg}]
+        return {"status": "failed"}
 
     attach_path = work_dir / f"{slug}.attachments.json"
     attach_results: list[dict] = []
@@ -201,8 +224,7 @@ def _import_vault(
             file_paths = entry.get("files", [])
 
             item_def["organizationId"] = attach_org_id
-            coll_id = vault_entry["collectionId"]
-            item_def["collectionIds"] = [coll_id]
+            item_def["collectionIds"] = [real_coll_id]
 
             if policy == "skip":
                 login = item_def.get("login") or {}
@@ -252,7 +274,7 @@ def _import_vault(
         "skippedCount": skipped_count,
         "attachmentItems": len(attach_results),
         "failures": len(attachment_failures),
-        "collectionId": vault_entry["collectionId"],
+        "collectionId": real_coll_id,
     }
     if attachment_failures:
         ledger["failures"][vault_name] = attachment_failures

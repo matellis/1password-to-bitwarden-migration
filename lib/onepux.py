@@ -379,7 +379,9 @@ def _fill_ssh_key(bw_item: dict, details: dict, notes_parts: list[str]) -> None:
             elif "fingerprint" in field_id:
                 fingerprint = val
             elif val:
-                bw_item["fields"].append(_make_bw_field(f.get("title") or field_id, fval, ftype) or {})
+                bw_field = _make_bw_field(f.get("title") or field_id, fval, ftype)
+                if bw_field:
+                    bw_item["fields"].append(bw_field)
 
     bw_item["sshKey"] = {
         "privateKey": private_key or None,
@@ -435,7 +437,7 @@ def _make_bw_field(name: str, value: Any, ftype: str) -> dict | None:
         return {"name": name, "value": str(value), "type": 1}
     if ftype == "date":
         try:
-            dt = datetime.datetime.utcfromtimestamp(int(value))
+            dt = datetime.datetime.fromtimestamp(int(value), tz=datetime.timezone.utc)
             display = dt.strftime("%Y-%m-%d")
         except (ValueError, OSError):
             display = str(value)
@@ -478,10 +480,10 @@ def _convert_password_history(history: list[dict]) -> list[dict]:
             continue
         if isinstance(ts, (int, float)):
             try:
-                dt = datetime.datetime.utcfromtimestamp(int(ts))
+                dt = datetime.datetime.fromtimestamp(int(ts), tz=datetime.timezone.utc)
                 ts_str = dt.strftime("%Y-%m-%dT%H:%M:%S.000Z")
             except (ValueError, OSError):
-                ts_str = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.000Z")
+                ts_str = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
         else:
             ts_str = str(ts)
         result.append({"lastUsedDate": ts_str, "password": pw})
