@@ -34,6 +34,16 @@ The three policies exist because teams frequently have partially-populated Bitwa
 
 Personal mode uses a separate ledger file (`state/<account>-personal.json`) so org-mode and personal-mode runs for the same account don't interfere.
 
+## Two routes, one decision rule
+
+For any given vault there are two migration routes.  Run exactly one per vault — never both.  Both routes on the same vault will produce duplicates.
+
+**Script route** (`split.py` / `import.py`): full-fidelity — moves all item types including documents, file attachments, secure notes, credit cards, and identities.  Cannot move passkeys.  Works entirely on desktop from a `.1pux` export.
+
+**CXP route** (iOS 26 Single-Vault Pipeline): moves credentials only — passwords, passkeys, TOTP seeds.  Transfers app-to-app with no plaintext file on disk.  Requires an iOS 26 device and vault-visibility scoping on 1password.com to keep CXP vault-precise.
+
+Decision rule: search `=passkey` in the 1Password app first.  Vaults that contain passkeys go via CXP.  All other vaults go via the script route.  For vaults that contain both passkeys and attachments, split the work: move credentials via CXP, then use the script route for a separate vault (or accept that attachments must be moved manually).
+
 ## Why passkey inventory is semi-manual
 
 No desktop export or CLI path can enumerate which 1Password items have passkeys.  The `.1pux` format carries no passkey fields; the `op` CLI JSON schema has no passkey support.  The only reliable inventory source is the 1Password app itself, via the `=passkey` search filter.

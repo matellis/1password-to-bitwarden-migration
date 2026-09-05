@@ -4,13 +4,13 @@
 
 Desktop `.1pux` exports contain no passkey credentials.  This is confirmed in 1Password's own documentation and verified empirically: scanning a large export for any key or value matching `passkey`, `webauthn`, or `fido` returns zero hits on passkey data.  The 1Password CLI (`op`) also does not expose passkeys — the `op item get` JSON schema has no passkey field, and `op` item templates do not support passkeys.
 
-There is no automated desktop export path for passkeys.
-
-**Inventory:** Use the 1Password app's `=passkey` search filter (per account) to list all items that have a passkey.  Transcribe the results to a markdown file and run `passkeys.py --manual` to build a mobile transfer checklist.  After migration, run `passkeys.py --from-bitwarden` to confirm which items now hold passkeys in Bitwarden.
+There is no desktop file export path for passkeys.  Passkeys are transferable via iOS 26 Credential Exchange (CXP) using the Single-Vault Pipeline described in README.md step 9.  That pipeline is also the only route that moves passkeys without per-site re-registration.
 
 **Transfer options:**
-- **iOS 26+ / Android:** FIDO Credential Exchange Protocol (CXP) — 1Password app → Settings → Advanced → Start Export, then choose Bitwarden.  This is the only path that moves passkeys without per-site re-registration.  It also transfers passwords, and it copies every vault the user can read (not just Private), so shared items may be duplicated.
+- **iOS 26 Single-Vault Pipeline (recommended):** Scope vault visibility to one vault at a time on 1password.com, then run CXP from the iOS 26 1Password app to Bitwarden.  Moves passwords, passkeys, and TOTP seeds for that vault only.  Does not move documents, file attachments, secure notes, credit cards, or identities — use the script route for those.
 - **Per-site re-registration:** Visit each site, remove the 1Password passkey, and register a new passkey into Bitwarden.
+
+After migration, run `passkeys.py --from-bitwarden` to confirm which items hold passkeys in Bitwarden (`fido2Credentials` non-empty).
 
 ## Private vaults
 
