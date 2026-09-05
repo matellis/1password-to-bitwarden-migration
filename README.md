@@ -149,12 +149,9 @@ python3 verify.py --personal --account jordan
 
 Desktop `.1pux` exports contain no passkey credentials — this is confirmed by 1Password and by `passkeys.py --from-pux` scanning real exports.  The 1Password CLI (`op`) does not expose passkeys either.  The only path that moves passkeys is iOS 26 Credential Exchange (CXP) via the Single-Vault Pipeline below.
 
-**Decision rule: prefer exactly one route per vault.**  Running both routes on the same vault produces duplicates — but the duplicates are now recoverable.  If a user runs the script route and later does a CXP transfer, `adopt.py` can merge the passkey into the existing org item and remove the personal duplicate (see "If users skip the passkey step" below).  Identify passkey vaults first (search `=passkey` in the 1Password app to see which vaults hold passkeys), then:
+**Every vault goes through the script route, in full.**  CXP moves credentials only — passwords, passkeys, TOTP seeds — never documents, file attachments, secure notes, credit cards or identities.  A vault that relied on CXP alone would silently lose every non-credential item, so there is no either/or choice: `split.py` / `import.py` import everything, and CXP layers passkeys on top afterwards, per person, at each owner's own pace.
 
-- Vaults with passkeys → Single-Vault Pipeline (CXP)
-- All other vaults → `split.py` / `import.py`
-
-**What CXP moves:** passwords, passkeys, TOTP seeds.  **What it does not move:** documents, file attachments, secure notes, credit cards, identities.  For those item types, the script route remains the only full-fidelity path.
+The cost is duplicates: each passkey-bearing login exists twice until cleanup — the script-imported item (carrying the passkey notice in its notes) and the CXP-created one.  Duplicates are recoverable; missing items are not.  `adopt.py` merges the passkey into the script-imported item and removes the duplicate, or a user deletes the duplicate by hand (see "If users skip the passkey step" below).  Before importing, search `=passkey` in the 1Password app and pass the list to `split.py --mark-passkeys` so every passkey gap is visible in Bitwarden from day one.
 
 **Single-Vault Pipeline (iOS 26, one vault at a time):**
 

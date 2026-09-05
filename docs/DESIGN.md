@@ -42,9 +42,7 @@ For any given vault there are two migration routes.
 
 **CXP route** (iOS 26 Single-Vault Pipeline): moves credentials only — passwords, passkeys, TOTP seeds.  Transfers app-to-app with no plaintext file on disk.  Requires an iOS 26 device and vault-visibility scoping on 1password.com to keep CXP vault-precise.
 
-Prefer exactly one route per vault.  Running both produces duplicates, but they are now recoverable: `adopt.py` merges passkeys from a personal-vault CXP item into the matching org item and moves the personal duplicate to trash.  This closes the "user skipped CXP" scenario without data loss.
-
-Decision rule: search `=passkey` in the 1Password app first.  Vaults that contain passkeys ideally go via CXP.  All other vaults go via the script route.  For vaults that contain both passkeys and attachments, the preferred split is CXP for credentials and script route for attachments.  If a user skips CXP initially, run the script route and use `--mark-passkeys` so the gap is visible; then `adopt.py` can close it later.
+The script route always runs for every vault, in full.  CXP cannot substitute for it: CXP moves credentials only, so a CXP-only vault would silently lose documents, attachments, secure notes, credit cards and identities.  CXP's role is to add passkeys after the script import, producing recoverable duplicates for passkey-bearing logins: `adopt.py` merges the passkey from the CXP-created item into the script-imported one and moves the duplicate to trash.  `split.py --mark-passkeys` annotates affected items at import time so the gap is visible in Bitwarden even if a user never runs CXP.
 
 ## Passkey safety-net features
 
