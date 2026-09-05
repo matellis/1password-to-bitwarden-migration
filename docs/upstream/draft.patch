@@ -1,0 +1,68 @@
+UNTESTED — hand-crafted from source inspection, not compiled or run.
+The patch applies against bitwarden/clients HEAD as of 2026-09-05.
+Verify with: git apply --check docs/upstream/draft.patch
+
+NOTE: all vaults are imported, regardless of attrs.type. "E" is the Everyone
+(Shared) vault and "P" is the user's own Private vault per the official 1pux
+format spec — both hold real items and must not be filtered out.
+
+diff --git a/libs/importer/src/importers/onepassword/onepassword-1pux-importer.ts b/libs/importer/src/importers/onepassword/onepassword-1pux-importer.ts
+--- a/libs/importer/src/importers/onepassword/onepassword-1pux-importer.ts
++++ b/libs/importer/src/importers/onepassword/onepassword-1pux-importer.ts
+@@ -56,9 +56,8 @@ export class OnePassword1PuxImporter extends BaseImporter implements Importer {
+     const account = exportData.accounts[0];
+-    // TODO Add handling of multiple vaults
+-    // const personalVaults = account.vaults[0].filter((v) => v.attrs.type === VaultAttributeTypeEnum.Personal);
+     account.vaults.forEach((vault: VaultsEntity) => {
++      const vaultFolderName = vault.attrs.name;
+       vault.items.forEach((item: Item) => {
+         // Snapshot folder state so a mid-item failure can be rolled back cleanly — no dangling
+         // relationship and no empty folder left behind.
+         const folderCount = this.result.folders.length;
+@@ -110,7 +109,7 @@ export class OnePassword1PuxImporter extends BaseImporter implements Importer {
+           cipher.favorite = item.favIndex === 1 ? true : false;
+
+-          this.processOverview(item.overview, cipher);
++          this.processOverview(item.overview, cipher, vaultFolderName);
+
+           this.processLoginFields(item, cipher);
+
+@@ -193,17 +192,22 @@ export class OnePassword1PuxImporter extends BaseImporter implements Importer {
+   }
+
+-  private processOverview(overview: Overview, cipher: CipherView) {
++  private processOverview(overview: Overview, cipher: CipherView, vaultFolderName?: string) {
+     if (overview == null) {
+       return;
+     }
+
+     cipher.name = this.getValueOrDefault(overview.title);
+
+     if (overview.urls != null) {
+       const urls: string[] = [];
+       overview.urls.forEach((url: UrlsEntity) => {
+         if (!this.isNullOrWhitespace(url.url)) {
+           urls.push(url.url);
+         }
+       });
+       cipher.login.uris = this.makeUriArray(urls);
+     }
+
+-    if (overview.tags != null && overview.tags.length > 0) {
+-      const folderName = this.capitalize(overview.tags[0]);
+-      this.processFolder(this.result, folderName);
++    if (!this.isNullOrWhitespace(vaultFolderName)) {
++      // Use vault name as the top-level folder.  If the item also has a tag,
++      // nest it underneath: "VaultName/TagName".  BaseImporter.processFolder
++      // already normalises "/" as a sub-folder separator.
++      const tag =
++        overview.tags != null && overview.tags.length > 0
++          ? this.capitalize(overview.tags[0])
++          : null;
++      const folderName = tag ? `${vaultFolderName}/${tag}` : vaultFolderName;
++      this.processFolder(this.result, folderName);
++    } else if (overview.tags != null && overview.tags.length > 0) {
++      // Fallback: no vault name available, use tag directly (preserves old behaviour).
++      this.processFolder(this.result, this.capitalize(overview.tags[0]));
+     }
+   }

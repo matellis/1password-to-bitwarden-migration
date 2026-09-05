@@ -243,6 +243,8 @@ See [docs/DESIGN.md](docs/DESIGN.md) for the route comparison and rationale.
 
 See [docs/MAPPING.md](docs/MAPPING.md) for the full category and field conversion tables.
 
-## Companion iOS app
+## Companion apps and upstream
 
-[docs/IOS-APP-SPEC.md](docs/IOS-APP-SPEC.md) specifies "Bridge", a small iOS 26 app that receives a CXP transfer from 1Password, shows an authoritative inventory, routes a selection to Bitwarden, and produces a verification checklist. Not yet built; the spec explains the scope cut (no Bitwarden crypto), the security model, and the M0 spike that gates the project.
+- [docs/IOS-APP-SPEC.md](docs/IOS-APP-SPEC.md) specifies "Bridge", a small iOS 26 app that receives a CXP transfer from 1Password, moves the passkey-bearing login items whole, and produces a checklist that doubles as an exclusion list for `import.py --exclude`. Not yet built.
+- [docs/MACOS-APP-SPEC.md](docs/MACOS-APP-SPEC.md) specifies a Migration Assistant-style macOS app that wraps this toolkit for less technical users: the scripts stay the engine, the app makes the runbook clickable. Not yet built.
+- [docs/UPSTREAM-IMPORTER-PR.md](docs/UPSTREAM-IMPORTER-PR.md) scopes a fix for the root cause in Bitwarden's own importer ([bitwarden/clients#20724](https://github.com/bitwarden/clients/issues/20724)), including a file map, test plan, draft PR description, and an untested draft patch in [docs/upstream/](docs/upstream/).
