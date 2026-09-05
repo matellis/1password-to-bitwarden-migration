@@ -6,3 +6,4 @@ state/
 __pycache__/
 *.pyc
 tests/fixture.1pux
+tests/fixture_config.json
