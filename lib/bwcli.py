@@ -145,3 +145,33 @@ def bulk_import(import_file: Path, org_id: str, format_name: str = "bitwardenjso
 def get_item(item_id: str) -> dict:
     raw = _run(["get", "item", item_id, "--raw"])
     return json.loads(raw)
+
+
+def list_folders() -> list[dict]:
+    raw = _run(["list", "folders", "--raw"])
+    return json.loads(raw) if raw.strip() else []
+
+
+def list_items_in_folder(folder_id: str) -> list[dict]:
+    raw = _run(["list", "items", "--folderid", folder_id, "--raw"])
+    return json.loads(raw) if raw.strip() else []
+
+
+def list_all_items() -> list[dict]:
+    raw = _run(["list", "items", "--raw"])
+    return json.loads(raw) if raw.strip() else []
+
+
+def fingerprints_in_folder(folder_id: str) -> set[tuple]:
+    items = list_items_in_folder(folder_id)
+    return {item_fingerprint(it) for it in items}
+
+
+def bulk_import_personal(import_file: Path, format_name: str = "bitwardenjson") -> None:
+    _run(["import", format_name, str(import_file)])
+
+
+def create_personal_item(item: dict) -> dict:
+    encoded = encode_item(item)
+    raw = _run(["create", "item", encoded, "--raw"])
+    return json.loads(raw)

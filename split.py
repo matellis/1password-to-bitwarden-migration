@@ -8,6 +8,9 @@ Writes work/<account>/<vault-slug>.json (bulk items),
 
 All work/ subdirs created with mode 700.  Attachment files extracted from the
 zip land in work/<account>/files/ and are referenced by path in attachments.json.
+
+--personal mode processes ONLY Private (type P) vaults and emits folder-based
+import JSON suitable for import into My vault (no org required).
 """
 
 from __future__ import annotations
@@ -16,8 +19,6 @@ import argparse
 import json
 import os
 import sys
-import tempfile
-import shutil
 import uuid
 from pathlib import Path
 
@@ -119,6 +120,92 @@ def _process_account(account: dict, work_dir: Path, include_archived: bool) -> l
     return manifest_entries
 
 
+def _process_account_personal(account: dict, work_dir: Path, include_archived: bool) -> list[dict]:
+    pux_path = Path(account["puxPath"])
+    if not pux_path.exists():
+        sys.exit(f"Export file not found: {pux_path}")
+
+    vault_rename = account.get("vaultRename", {})
+
+    files_dir = work_dir / "files"
+    export_data, files_map = onepux.parse_export(pux_path, files_dir)
+
+    vault_list = onepux.vaults(export_data)
+    manifest_entries: list[dict] = []
+
+    for vault in vault_list:
+        attrs = vault.get("attrs") or {}
+        vault_type = attrs.get("type", "")
+        if vault_type != "P":
+            continue
+
+        vault_name = attrs.get("name", attrs.get("uuid", "vault"))
+        vault_name = vault_rename.get(vault_name, vault_name)
+        slug = onepux.vault_slug(attrs)
+
+        items = vault.get("items") or []
+        folder_id = str(uuid.uuid4())
+        folder = {"id": folder_id, "name": vault_name}
+
+        # Use dummy org/coll for conversion, then strip org fields and wire folder.
+        result = onepux.convert_vault_items(
+            items,
+            "",
+            folder_id,
+            files_map,
+            include_archived=include_archived,
+            ssh_key_supported=SSH_KEY_SUPPORTED,
+        )
+
+        for item in result.bulk_items:
+            item["organizationId"] = None
+            item["collectionIds"] = None
+            item["folderId"] = folder_id
+
+        for entry in result.attachment_items:
+            it = entry["item"]
+            it["organizationId"] = None
+            it["collectionIds"] = None
+            it["folderId"] = folder_id
+
+        bulk_path = work_dir / f"{slug}.json"
+        _write_secure(bulk_path, {
+            "encrypted": False,
+            "folders": [folder],
+            "items": result.bulk_items,
+        })
+
+        attach_path = work_dir / f"{slug}.attachments.json"
+        _write_secure(attach_path, {
+            "folderId": folder_id,
+            "items": [
+                {
+                    "item": entry["item"],
+                    "files": [str(p) for p in entry["files"]],
+                }
+                for entry in result.attachment_items
+            ],
+        })
+
+        manifest_entries.append({
+            "vaultName": vault_name,
+            "vaultType": vault_type,
+            "slug": slug,
+            "folderId": folder_id,
+            "folderName": vault_name,
+            "personal": True,
+            "counts": {
+                "total": len(items),
+                "bulk": len(result.bulk_items),
+                "attachment": len(result.attachment_items),
+                "archivedSkipped": result.archived_count,
+                "dupesCollapsed": result.dupe_count,
+            },
+        })
+
+    return manifest_entries
+
+
 def _write_secure(path: Path, data: dict | list) -> None:
     old_umask = os.umask(0o177)
     try:
@@ -143,6 +230,10 @@ def _print_table(account_name: str, entries: list[dict]) -> None:
         )
 
 
+def _is_personal(account: dict, args: argparse.Namespace) -> bool:
+    return args.personal or account.get("mode") == "personal"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Split a .1pux export into per-vault Bitwarden import files."
@@ -150,6 +241,10 @@ def main() -> None:
     parser.add_argument("--config", default="config.json", metavar="PATH")
     parser.add_argument("--account", metavar="NAME", help="Process only this account name")
     parser.add_argument("--include-archived", action="store_true", help="Include archived items")
+    parser.add_argument(
+        "--personal", action="store_true",
+        help="Personal mode: process only Private (type P) vaults, emit folder-based import JSON"
+    )
     args = parser.parse_args()
 
     config = _load_config(Path(args.config))
@@ -164,18 +259,32 @@ def main() -> None:
             sys.exit(f"Account '{args.account}' not found in config.")
 
     print("split.py — 1pux → Bitwarden per-vault import files")
+    if args.personal:
+        print("Mode: personal (Private vaults only → My vault folders)")
 
     manifest_all: dict[str, list] = {}
     for account in accounts:
         name = account.get("name", "unknown")
+        personal = _is_personal(account, args)
         work_dir = _make_work_dir(name)
-        entries = _process_account(account, work_dir, args.include_archived)
+
+        if personal:
+            entries = _process_account_personal(account, work_dir, args.include_archived)
+            if not entries:
+                print(f"\nAccount: {name} — no Private (type P) vaults found in this export.")
+                continue
+        else:
+            entries = _process_account(account, work_dir, args.include_archived)
+
         manifest_all[name] = entries
         _write_secure(work_dir / "manifest.json", entries)
         _print_table(name, entries)
 
     print(f"\nOutput written to work/")
-    print("Review the plan above, then run: python3 import.py")
+    if any(_is_personal(a, args) for a in accounts):
+        print("Review the plan above, then run: python3 import.py --personal")
+    else:
+        print("Review the plan above, then run: python3 import.py")
 
 
 if __name__ == "__main__":

@@ -25,6 +25,13 @@
       "onExisting": "refuse",
       "skipVaultTypes": ["P"],
       "vaultRename": {}
+    },
+    {
+      "name": "family-private",
+      "mode": "personal",
+      "puxPath": "exports/<family-account-uuid>.1pux",
+      "onExisting": "refuse",
+      "vaultRename": {}
     }
   ]
 }

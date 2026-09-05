@@ -107,11 +107,70 @@ Compares source 1pux data field-by-field against live Bitwarden data.  Exits 0 o
 
 ### 8. Private vaults — user self-service
 
-Private vaults are not exported by the admin `.1pux` (by 1Password design).  Each user exports their own Private vault and imports it themselves into Bitwarden.
+Private vaults are not exported by the admin `.1pux` (by 1Password design).  Each user migrates their own Private vault.  Two routes:
+
+**Route 1 — FIDO Credential Exchange (iOS 26+ / Android)**
+
+1Password app → Settings → Advanced → Start Export → choose Bitwarden as the receiving app.  This moves passwords and passkeys together.  Caveat: it transfers every vault the user can read, not just Private — shared items will land in Bitwarden alongside Private items.  Review and clean up duplicates afterward.
+
+**Route 2 — This tool's personal mode (desktop, Private vault only, no passkeys)**
+
+Each user exports their own account as a `.1pux` file.  The tool reads only the Private vault (`type: P`) and writes folder-based import JSON for Bitwarden's My vault.
+
+```bash
+# In the user's own copy of config.json, set "mode": "personal" on their account entry.
+python3 split.py --personal --account alice
+python3 import.py --personal --account alice
+python3 verify.py --personal --account alice
+```
+
+Trade-offs:
+
+| | FIDO CXP (Route 1) | Personal mode (Route 2) |
+|---|---|---|
+| Passkeys | Moves them | Does not move them |
+| Scope | All readable vaults | Private vault only |
+| Platform | iOS 26+ / Android | Desktop |
+| Duplicates | Possible (shared vaults) | No (Private only) |
 
 ### 9. Passkeys
 
-Passkeys are not included in any 1Password export.  On iOS 26+, FIDO Credential Exchange Protocol (CXP) can transfer passkeys directly between apps.  For everyone else, re-register passkeys per site after the migration.
+Desktop `.1pux` exports contain no passkey credentials — this is documented by 1Password.  The 1Password CLI (`op`) does not expose passkeys either.  There is no automated export path for passkeys from the desktop.
+
+**Build the passkey inventory:**
+
+1. In the 1Password app (per account), search `=passkey`.  This lists every item that has a passkey.
+2. Transcribe the results to a markdown file, one line per item:
+   ```
+   - Google | alice@example.com | https://accounts.google.com
+   - GitHub | alice | https://github.com
+   ```
+3. Run `passkeys.py` to turn the list into a mobile checklist:
+   ```bash
+   python3 passkeys.py --account family --manual passkeys-family.md
+   # => work/passkeys/index.html
+   ```
+4. Open `work/passkeys/index.html` on your phone.  Check off each passkey as you transfer it.
+
+**Scan the export (optional sanity check):**
+
+```bash
+python3 passkeys.py --account family --from-pux exports/family.1pux
+```
+
+This searches the export JSON for any key or string matching `passkey`, `webauthn`, or `fido`.  Zero hits is expected and normal — it confirms the desktop export carries no passkey data.
+
+**Confirm after migration:**
+
+```bash
+python3 passkeys.py --account family --from-bitwarden
+```
+
+This reads `bw list items` and reports login items whose `fido2Credentials` field is non-empty.  Run this after completing CXP transfers to verify which items now hold passkeys in Bitwarden.
+
+**Transfer passkeys:**
+
+Use Route 1 (FIDO CXP on iOS/Android) or re-register each passkey per site.  There is no desktop batch transfer path.
 
 ### 10. Clean up
 

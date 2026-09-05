@@ -31,3 +31,13 @@ The three policies exist because teams frequently have partially-populated Bitwa
 ## Idempotency ledger
 
 `state/<account>.json` records every vault import with a timestamp, item counts, and the collection ID. A vault present in the ledger is skipped on re-run unless `--force`. This prevents double-imports when re-running the whole script after a partial failure.
+
+Personal mode uses a separate ledger file (`state/<account>-personal.json`) so org-mode and personal-mode runs for the same account don't interfere.
+
+## Why passkey inventory is semi-manual
+
+No desktop export or CLI path can enumerate which 1Password items have passkeys.  The `.1pux` format carries no passkey fields; the `op` CLI JSON schema has no passkey support.  The only reliable inventory source is the 1Password app itself, via the `=passkey` search filter.
+
+`passkeys.py --from-pux` does a defensive scan anyway — it searches every key and string value in the export JSON for `/passkey|webauthn|fido/i`.  The expected result is zero credential hits, which confirms the export limitation empirically on real data.  Any unexpected hits are reported with their JSON path so the user can inspect them.
+
+`passkeys.py --manual` converts a user-transcribed list (from the `=passkey` search) into a self-contained mobile checklist, so the transfer can be tracked per-item on the phone where FIDO CXP runs.

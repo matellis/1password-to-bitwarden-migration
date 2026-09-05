@@ -5,6 +5,9 @@ Per vault: count check, title multiset check, per-item field equality
 (username, password, TOTP seed normalized, primary URI, notes, custom fields),
 attachment counts, extras detection.  Policy-aware (refuse/allow vs skip).
 
+--personal mode compares against items in the personal folder instead of an org
+collection.
+
 Exits 0 only when all checked vaults pass.
 Optional --op: compare live 1Password per-vault item counts against 1pux counts.
 """
@@ -35,8 +38,12 @@ def _load_config(config_path: Path) -> dict:
     return _load_json(config_path)
 
 
-def _load_ledger(account_name: str) -> dict:
-    p = Path("state") / f"{account_name}.json"
+def _ledger_name(account_name: str, personal: bool) -> str:
+    return f"{account_name}-personal" if personal else account_name
+
+
+def _load_ledger(account_name: str, personal: bool) -> dict:
+    p = Path("state") / f"{_ledger_name(account_name, personal)}.json"
     if p.exists():
         return _load_json(p)
     return {"imported": {}, "failures": {}}
@@ -158,11 +165,9 @@ def _verify_vault(
         expected_count = ledger_entry.get("importedCount", len(source_items))
     else:
         expected_count = len(source_items)
-    # source_items is a list of (item, attach_count) tuples; len() is still correct.
 
     live_count = len(live_items)
     if policy == "skip":
-        skipped = ledger_entry.get("skippedCount", 0) if ledger_entry else 0
         if live_count < expected_count:
             issues.append(f"Count: expected at least {expected_count} live items, got {live_count}")
     else:
@@ -198,6 +203,72 @@ def _verify_vault(
     return len(issues) == 0, issues
 
 
+def _verify_vault_personal(
+    vault_name: str,
+    folder_name: str,
+    policy: str,
+    ledger_entry: dict | None,
+    bulk_path: Path,
+    attach_path: Path,
+) -> tuple[bool, list[str]]:
+    issues: list[str] = []
+
+    folders = bwcli.list_folders()
+    match = next((f for f in folders if f.get("name") == folder_name), None)
+    if not match:
+        return False, [f"Folder '{folder_name}' not found in My vault."]
+
+    folder_id = match["id"]
+    live_items = bwcli.list_items_in_folder(folder_id)
+    live_by_name: dict[str, list[dict]] = {}
+    for it in live_items:
+        n = (it.get("name") or "").strip()
+        live_by_name.setdefault(n, []).append(it)
+
+    source_items = _load_source_items(bulk_path, attach_path)
+
+    if policy == "skip" and ledger_entry:
+        expected_count = ledger_entry.get("importedCount", len(source_items))
+    else:
+        expected_count = len(source_items)
+
+    live_count = len(live_items)
+    if policy == "skip":
+        if live_count < expected_count:
+            issues.append(f"Count: expected at least {expected_count} live items, got {live_count}")
+    else:
+        if live_count != expected_count:
+            issues.append(f"Count: expected {expected_count}, got {live_count}")
+
+    src_title_counter = Counter((it.get("name") or "").strip() for it, _ in source_items)
+    live_title_counter = Counter((it.get("name") or "").strip() for it in live_items)
+
+    missing_titles = src_title_counter - live_title_counter
+    if missing_titles and policy != "skip":
+        issues.append(f"Missing titles: {dict(missing_titles)}")
+
+    for src_item, expected_attach_count in source_items:
+        name = (src_item.get("name") or "").strip()
+        candidates = live_by_name.get(name, [])
+        if not candidates:
+            if policy != "skip":
+                issues.append(f"Item not found: {name!r}")
+            continue
+        item_diffs = _compare_item(src_item, candidates[0], expected_attach_count)
+        if item_diffs:
+            issues.append(f"Item {name!r} field mismatches:")
+            issues.extend(item_diffs)
+
+    extra_titles = live_title_counter - src_title_counter
+    if extra_titles:
+        if policy == "skip":
+            issues.append(f"Pre-existing items in folder (expected under skip policy): {dict(extra_titles)}")
+        else:
+            issues.append(f"Unexpected live items: {dict(extra_titles)}")
+
+    return len(issues) == 0, issues
+
+
 def _op_check(pux_path: Path, account_name: str) -> None:
     import subprocess, shutil, zipfile as _zipfile
     op = shutil.which("op")
@@ -205,8 +276,6 @@ def _op_check(pux_path: Path, account_name: str) -> None:
         print("  --op: 'op' CLI not found on PATH, skipping 1Password cross-check.")
         return
 
-    # Read only export.data from the zip — attachment files are not needed here
-    # and extracting them to /tmp would leave decrypted data on disk.
     with _zipfile.ZipFile(pux_path) as zf:
         export_data = json.loads(zf.read("export.data"))
     vault_list = onepux.vaults(export_data)
@@ -233,6 +302,10 @@ def _op_check(pux_path: Path, account_name: str) -> None:
             print(f"    {vault_name}: op check failed — {e}")
 
 
+def _is_personal(account: dict, args: argparse.Namespace) -> bool:
+    return args.personal or account.get("mode") == "personal"
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Verify 1pux source vs live Bitwarden org collections."
@@ -241,6 +314,10 @@ def main() -> None:
     parser.add_argument("--account", metavar="NAME")
     parser.add_argument("--vault", metavar="NAME")
     parser.add_argument("--op", action="store_true", help="Cross-check live 1Password via op CLI")
+    parser.add_argument(
+        "--personal", action="store_true",
+        help="Personal mode: verify against My vault folders instead of org collections"
+    )
     args = parser.parse_args()
 
     config = _load_config(Path(args.config))
@@ -260,8 +337,8 @@ def main() -> None:
 
     for account in accounts:
         name = account.get("name", "unknown")
-        org_id = account["bitwardenOrgId"]
         policy = account.get("onExisting", "refuse")
+        personal = _is_personal(account, args)
         work_dir = Path("work") / name
         manifest_path = work_dir / "manifest.json"
 
@@ -270,8 +347,8 @@ def main() -> None:
             continue
 
         manifest = _load_json(manifest_path)
-        ledger = _load_ledger(name)
-        print(f"\nAccount: {name}")
+        ledger = _load_ledger(name, personal)
+        print(f"\nAccount: {name}{' (personal mode)' if personal else ''}")
 
         vaults_to_check = manifest
         if args.vault:
@@ -279,6 +356,11 @@ def main() -> None:
 
         for vault_entry in vaults_to_check:
             vault_name = vault_entry["vaultName"]
+            is_personal_entry = vault_entry.get("personal", False)
+
+            if personal != is_personal_entry:
+                continue
+
             slug = vault_entry["slug"]
             bulk_path = work_dir / f"{slug}.json"
             attach_path = work_dir / f"{slug}.attachments.json"
@@ -289,10 +371,19 @@ def main() -> None:
                 continue
 
             print(f"  [{vault_name}] Checking...", end=" ", flush=True)
-            passed, issues = _verify_vault(
-                vault_name, vault_entry["collectionName"], org_id,
-                policy, ledger_entry, bulk_path, attach_path
-            )
+
+            if personal:
+                folder_name = vault_entry.get("folderName", vault_name)
+                passed, issues = _verify_vault_personal(
+                    vault_name, folder_name, policy, ledger_entry, bulk_path, attach_path
+                )
+            else:
+                org_id = account["bitwardenOrgId"]
+                passed, issues = _verify_vault(
+                    vault_name, vault_entry["collectionName"], org_id,
+                    policy, ledger_entry, bulk_path, attach_path
+                )
+
             status = "PASS" if passed else "FAIL"
             print(status)
             if not passed:
@@ -301,7 +392,7 @@ def main() -> None:
                     print(f"    {issue}")
             results.append((name, vault_name, passed))
 
-        if args.op:
+        if args.op and not personal:
             pux_path = Path(account.get("puxPath", ""))
             if pux_path.exists():
                 _op_check(pux_path, name)

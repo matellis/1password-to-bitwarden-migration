@@ -78,15 +78,100 @@ EXPORT_DATA = {
                                     {"value": "PrivatePass1!", "id": "password", "name": "password", "fieldType": "P", "designation": "password"},
                                 ],
                                 "notesPlain": "",
-                                "sections": [],
-                                "passwordHistory": [],
+                                "sections": [
+                                    {
+                                        "title": "Two-Factor Auth",
+                                        "name": "totp_section",
+                                        "fields": [
+                                            {
+                                                "title": "TOTP",
+                                                "id": "priv_totp",
+                                                "value": {"totp": "otpauth://totp/Private:private@example.com?secret=JBSWY3DPEHPK3PXP&issuer=Private"},
+                                                "indexInSection": 0,
+                                            },
+                                        ],
+                                    },
+                                ],
+                                "passwordHistory": [
+                                    {"value": "OldPrivate1!", "time": 1699000001},
+                                ],
                             },
                             "overview": {
                                 "title": "Private Login",
                                 "urls": [{"label": "website", "url": "https://private.example.com"}],
+                                "tags": ["personal"],
+                            },
+                        },
+                        {
+                            "uuid": "privnote000000000000000000000001",
+                            "favIndex": 0,
+                            "createdAt": 1700000050,
+                            "updatedAt": 1700000050,
+                            "state": "active",
+                            "categoryUuid": "002",
+                            "details": {
+                                "loginFields": [],
+                                "notesPlain": "Wi-Fi password: hunter2\nRouter IP: 192.168.1.1",
+                                "sections": [],
+                                "passwordHistory": [],
+                            },
+                            "overview": {
+                                "title": "Home Network",
                                 "tags": [],
                             },
-                        }
+                        },
+                        {
+                            "uuid": "privcard000000000000000000000001",
+                            "favIndex": 0,
+                            "createdAt": 1700000060,
+                            "updatedAt": 1700000060,
+                            "state": "active",
+                            "categoryUuid": "003",
+                            "details": {
+                                "loginFields": [],
+                                "notesPlain": "",
+                                "sections": [
+                                    {
+                                        "title": "",
+                                        "name": "priv_card_section",
+                                        "fields": [
+                                            {"title": "Cardholder Name", "id": "cardholder", "value": {"string": "Pat Example"}, "indexInSection": 0},
+                                            {"title": "Card Number", "id": "ccnum", "value": {"creditCardNumber": "5500005555555559"}, "indexInSection": 1},
+                                            {"title": "CVV", "id": "cvv", "value": {"concealed": "737"}, "indexInSection": 2},
+                                            {"title": "Expiry Date", "id": "expiry", "value": {"monthYear": 202812}, "indexInSection": 3},
+                                            {"title": "Type", "id": "type", "value": {"string": "mc"}, "indexInSection": 4},
+                                        ],
+                                    }
+                                ],
+                                "passwordHistory": [],
+                            },
+                            "overview": {
+                                "title": "Personal Mastercard",
+                                "tags": [],
+                            },
+                        },
+                        {
+                            "uuid": "privarch000000000000000000000001",
+                            "favIndex": 0,
+                            "createdAt": 1698000000,
+                            "updatedAt": 1698500000,
+                            "state": "archived",
+                            "categoryUuid": "001",
+                            "details": {
+                                "loginFields": [
+                                    {"value": "old-personal@example.com", "id": "username", "name": "username", "fieldType": "T", "designation": "username"},
+                                    {"value": "OldPrivPass!", "id": "password", "name": "password", "fieldType": "P", "designation": "password"},
+                                ],
+                                "notesPlain": "Old account, closed.",
+                                "sections": [],
+                                "passwordHistory": [],
+                            },
+                            "overview": {
+                                "title": "Archived Personal Login",
+                                "urls": [],
+                                "tags": [],
+                            },
+                        },
                     ],
                 },
                 {
