@@ -24,6 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from lib import onepux
+from lib import passkey_inventory as pkinv
 
 SSH_KEY_SUPPORTED = True
 
@@ -47,7 +48,18 @@ def _make_work_dir(account_name: str) -> Path:
     return work
 
 
-def _process_account(account: dict, work_dir: Path, include_archived: bool) -> list[dict]:
+def _mark_items(items: list[dict], inventory: list[dict]) -> int:
+    """Append passkey marker to notes of matching items. Returns count marked."""
+    count = 0
+    for item in items:
+        if pkinv.matches_inventory(item, inventory):
+            item["notes"] = pkinv.append_marker(item.get("notes"))
+            count += 1
+    return count
+
+
+def _process_account(account: dict, work_dir: Path, include_archived: bool,
+                     inventory: list[dict] | None = None) -> list[dict]:
     pux_path = Path(account["puxPath"])
     if not pux_path.exists():
         sys.exit(f"Export file not found: {pux_path}")
@@ -84,6 +96,12 @@ def _process_account(account: dict, work_dir: Path, include_archived: bool) -> l
             ssh_key_supported=SSH_KEY_SUPPORTED,
         )
 
+        marked = 0
+        if inventory:
+            att_all = [e["item"] for e in result.attachment_items]
+            marked += _mark_items(result.bulk_items, inventory)
+            marked += _mark_items(att_all, inventory)
+
         bulk_path = work_dir / f"{slug}.json"
         import_doc = onepux.make_import_doc(org_id, collection, result.bulk_items)
         _write_secure(bulk_path, import_doc)
@@ -114,13 +132,15 @@ def _process_account(account: dict, work_dir: Path, include_archived: bool) -> l
                 "attachment": len(result.attachment_items),
                 "archivedSkipped": result.archived_count,
                 "dupesCollapsed": result.dupe_count,
+                "passkeysMarked": marked,
             },
         })
 
     return manifest_entries
 
 
-def _process_account_personal(account: dict, work_dir: Path, include_archived: bool) -> list[dict]:
+def _process_account_personal(account: dict, work_dir: Path, include_archived: bool,
+                              inventory: list[dict] | None = None) -> list[dict]:
     pux_path = Path(account["puxPath"])
     if not pux_path.exists():
         sys.exit(f"Export file not found: {pux_path}")
@@ -168,6 +188,12 @@ def _process_account_personal(account: dict, work_dir: Path, include_archived: b
             it["collectionIds"] = None
             it["folderId"] = folder_id
 
+        marked = 0
+        if inventory:
+            att_all = [e["item"] for e in result.attachment_items]
+            marked += _mark_items(result.bulk_items, inventory)
+            marked += _mark_items(att_all, inventory)
+
         bulk_path = work_dir / f"{slug}.json"
         _write_secure(bulk_path, {
             "encrypted": False,
@@ -200,6 +226,7 @@ def _process_account_personal(account: dict, work_dir: Path, include_archived: b
                 "attachment": len(result.attachment_items),
                 "archivedSkipped": result.archived_count,
                 "dupesCollapsed": result.dupe_count,
+                "passkeysMarked": marked,
             },
         })
 
@@ -217,17 +244,25 @@ def _write_secure(path: Path, data: dict | list) -> None:
 
 
 def _print_table(account_name: str, entries: list[dict]) -> None:
+    show_marked = any(e["counts"].get("passkeysMarked", 0) > 0 for e in entries)
     print(f"\nAccount: {account_name}")
-    header = f"  {'Vault':<30} {'Type':<6} {'Total':>7} {'Bulk':>7} {'Attach':>7} {'Archived':>9} {'Dupes':>6}"
+    header = (
+        f"  {'Vault':<30} {'Type':<6} {'Total':>7} {'Bulk':>7} {'Attach':>7}"
+        f" {'Archived':>9} {'Dupes':>6}"
+        + (f" {'Marked':>7}" if show_marked else "")
+    )
     print(header)
     print("  " + "-" * (len(header) - 2))
     for e in entries:
         c = e["counts"]
-        print(
+        row = (
             f"  {e['vaultName']:<30} {e['vaultType']:<6}"
             f" {c['total']:>7} {c['bulk']:>7} {c['attachment']:>7}"
             f" {c['archivedSkipped']:>9} {c['dupesCollapsed']:>6}"
         )
+        if show_marked:
+            row += f" {c.get('passkeysMarked', 0):>7}"
+        print(row)
 
 
 def _is_personal(account: dict, args: argparse.Namespace) -> bool:
@@ -245,6 +280,14 @@ def main() -> None:
         "--personal", action="store_true",
         help="Personal mode: process only Private (type P) vaults, emit folder-based import JSON"
     )
+    parser.add_argument(
+        "--mark-passkeys", metavar="FILE",
+        help=(
+            "Passkey inventory file (markdown '- Site | username | url' format or "
+            "Bridge JSON {entries:[{title,username,url}]}). Login items whose fingerprint "
+            "matches an inventory entry get a passkey-migration notice appended to their notes."
+        ),
+    )
     args = parser.parse_args()
 
     config = _load_config(Path(args.config))
@@ -258,6 +301,14 @@ def main() -> None:
         if not accounts:
             sys.exit(f"Account '{args.account}' not found in config.")
 
+    inventory: list[dict] | None = None
+    if args.mark_passkeys:
+        inv_path = Path(args.mark_passkeys)
+        if not inv_path.exists():
+            sys.exit(f"Inventory file not found: {inv_path}")
+        inventory = pkinv.load_inventory(inv_path)
+        print(f"Passkey inventory loaded: {len(inventory)} entries from {inv_path}")
+
     print("split.py — 1pux → Bitwarden per-vault import files")
     if args.personal:
         print("Mode: personal (Private vaults only → My vault folders)")
@@ -269,12 +320,12 @@ def main() -> None:
         work_dir = _make_work_dir(name)
 
         if personal:
-            entries = _process_account_personal(account, work_dir, args.include_archived)
+            entries = _process_account_personal(account, work_dir, args.include_archived, inventory)
             if not entries:
                 print(f"\nAccount: {name} — no Private (type P) vaults found in this export.")
                 continue
         else:
-            entries = _process_account(account, work_dir, args.include_archived)
+            entries = _process_account(account, work_dir, args.include_archived, inventory)
 
         manifest_all[name] = entries
         _write_secure(work_dir / "manifest.json", entries)

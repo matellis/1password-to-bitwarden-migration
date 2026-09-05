@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Build a passkey transfer checklist from 1Password and Bitwarden sources.
 
-Three input modes, all combinable:
+Four input modes, all combinable:
 
   --from-pux PATH      Defensively scan a .1pux export for any key or string
                        value matching /passkey|webauthn|fido/.  Reports item
@@ -17,6 +17,19 @@ Three input modes, all combinable:
                        =passkey search filter.  Format: one entry per line:
                          - Site name | username | https://url
                        Fields after the first are optional.
+
+  --bridge FILE        Parse a Bridge/checklist JSON file produced by the iOS
+                       companion app (format: {entries:[{title,username,url}]}).
+                       Also accepted by --mark-passkeys in split.py.
+
+Gap report mode:
+
+  --gap-report         Compare the loaded inventory (--manual / --bridge) with
+                       passkey items already in Bitwarden (--from-bitwarden).
+                       Prints per-account: expected, confirmed, missing, and
+                       unexpected passkeys.  Always exits 0.
+                       Note: org items are visible to the admin; personal-vault
+                       passkeys require each user to run this themselves.
 
 Output:
   work/passkeys/<name>.json    Structured passkey list for each source run.
@@ -42,6 +55,7 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent))
+from lib import passkey_inventory as pkinv
 
 _PASSKEY_RE = re.compile(r"passkey|webauthn|fido", re.IGNORECASE)
 _WORK_DIR = Path("work") / "passkeys"
@@ -183,6 +197,23 @@ def from_bitwarden(account_name: str) -> list[dict]:
     return entries
 
 
+# --- Mode: --bridge ---
+
+def parse_bridge(file_path: Path, account_name: str) -> list[dict]:
+    """Parse a Bridge/checklist JSON file ({entries:[{title,username,url}]})."""
+    raw = pkinv.load_inventory(file_path)
+    entries = []
+    for e in raw:
+        entries.append({
+            "account": account_name,
+            "source": "bridge",
+            "site": e.get("site") or e.get("title") or "?",
+            "username": e.get("username") or "",
+            "url": e.get("url") or "",
+        })
+    return entries
+
+
 # --- Mode: --manual ---
 
 def parse_manual(file_path: Path, account_name: str) -> list[dict]:
@@ -209,6 +240,57 @@ def parse_manual(file_path: Path, account_name: str) -> list[dict]:
     return entries
 
 
+# --- Mode: --gap-report ---
+
+def print_gap_report(inventory_entries: list[dict], bw_entries: list[dict]) -> None:
+    """Print a per-account gap report comparing inventory against BW passkey items."""
+
+    def _to_pkinv(entries: list[dict]) -> list[dict]:
+        return [{"site": e["site"], "username": e["username"], "url": e["url"]} for e in entries]
+
+    def _to_bw_item(entry: dict) -> dict:
+        return {
+            "type": 1,
+            "name": entry["site"],
+            "login": {
+                "username": entry["username"],
+                "uris": [{"uri": entry["url"]}] if entry.get("url") else [],
+                "fido2Credentials": [{}],
+            },
+        }
+
+    accounts = sorted({e["account"] for e in inventory_entries} | {e["account"] for e in bw_entries})
+
+    for account in accounts:
+        inv = [e for e in inventory_entries if e["account"] == account]
+        bw = [e for e in bw_entries if e["account"] == account]
+
+        inv_plain = _to_pkinv(inv)
+        bw_items = [_to_bw_item(e) for e in bw]
+
+        report = pkinv.gap_report(inv_plain, bw_items)
+
+        print(f"\nAccount: {account}")
+        print(f"  Expected (from inventory):     {len(inv)}")
+        print(f"  Confirmed in Bitwarden:        {len(bw)}")
+        print(f"  Matched:                       {len(report['matched'])}")
+        if report["missing_from_bw"]:
+            print(f"  Missing from Bitwarden ({len(report['missing_from_bw'])}):")
+            for e in report["missing_from_bw"]:
+                user = f" ({e['username']})" if e.get("username") else ""
+                print(f"    - {e['site']}{user}")
+        else:
+            print("  Missing from Bitwarden:        none")
+        if report["unexpected_in_bw"]:
+            print(f"  Unexpected in Bitwarden ({len(report['unexpected_in_bw'])}):")
+            for item in report["unexpected_in_bw"]:
+                login = item.get("login") or {}
+                user = f" ({login.get('username', '')})" if login.get("username") else ""
+                print(f"    - {item.get('name', '?')}{user}")
+        else:
+            print("  Unexpected in Bitwarden:       none")
+
+
 # --- HTML generation ---
 
 def _esc(s: str) -> str:
@@ -224,6 +306,7 @@ _SOURCE_LABELS = {
     "pux": "Found in 1Password export (review — may not be real passkeys)",
     "bitwarden": "Confirmed in Bitwarden",
     "manual": "Transcribed from 1Password app",
+    "bridge": "From Bridge iOS app checklist",
 }
 
 
@@ -354,9 +437,16 @@ def main() -> None:
                         help="List Bitwarden login items with non-empty fido2Credentials (read-only)")
     parser.add_argument("--manual", metavar="FILE",
                         help="Parse a transcribed passkey list (- Site | username | url)")
+    parser.add_argument("--bridge", metavar="FILE",
+                        help="Parse a Bridge iOS app checklist JSON ({entries:[{title,username,url}]})")
+    parser.add_argument("--gap-report", action="store_true",
+                        help=(
+                            "Compare loaded inventory (--manual/--bridge) against Bitwarden "
+                            "(--from-bitwarden) and print missing/unexpected passkeys. Always exits 0."
+                        ))
     args = parser.parse_args()
 
-    if not (args.from_pux or args.from_bitwarden or args.manual):
+    if not (args.from_pux or args.from_bitwarden or args.manual or args.bridge or args.gap_report):
         parser.print_help()
         sys.exit(1)
 
@@ -407,6 +497,38 @@ def main() -> None:
         _write_secure(out_path, entries)
         print(f"{len(entries)} passkey entry/entries parsed.")
         print(f"Written to {out_path}")
+
+    if args.bridge:
+        bridge_path = Path(args.bridge)
+        if not bridge_path.exists():
+            sys.exit(f"File not found: {bridge_path}")
+        account_name = args.account or bridge_path.stem
+        print(f"Parsing Bridge JSON {bridge_path}...")
+        entries = parse_bridge(bridge_path, account_name)
+        out_path = work_dir / f"{account_name}-bridge.json"
+        _write_secure(out_path, entries)
+        print(f"{len(entries)} passkey entry/entries loaded from Bridge JSON.")
+        print(f"Written to {out_path}")
+
+    if args.gap_report:
+        # Collect inventory entries from all JSON files in work/passkeys/ that are
+        # not from bitwarden source (manual + bridge = expected set).
+        inv_entries: list[dict] = []
+        bw_entries: list[dict] = []
+        for json_file in sorted(work_dir.glob("*.json")):
+            try:
+                with open(json_file) as f:
+                    data = json.load(f)
+                if not isinstance(data, list):
+                    continue
+                for e in data:
+                    if e.get("source") == "bitwarden":
+                        bw_entries.append(e)
+                    elif e.get("source") in ("manual", "bridge"):
+                        inv_entries.append(e)
+            except Exception:
+                pass
+        print_gap_report(inv_entries, bw_entries)
 
     # Rebuild the combined checklist from all JSON files in work/passkeys/.
     all_entries: list[dict] = []

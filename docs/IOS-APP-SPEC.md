@@ -128,6 +128,9 @@ seeds exist only as in-memory API objects for the duration of a session.
 - Ordering: for a vault containing passkeys, run the Bridge leg first, then the script
   with `--exclude`. The reverse order would need a delete-shaped prune pass, which is
   deliberately not built.
+- Bridge JSON is accepted directly by `split.py --mark-passkeys` and `passkeys.py --bridge`
+  (and therefore `--gap-report`), so the checklist doubles as a passkey inventory for both
+  the marker mechanism and gap reporting without any format conversion.
 - `passkeys.py --from-bridge <file.json>` merges the app's checklist with the desktop
   inventory and `--from-bitwarden` results into one verification report.
 - README links both ways.

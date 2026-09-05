@@ -175,3 +175,26 @@ def create_personal_item(item: dict) -> dict:
     encoded = encode_item(item)
     raw = _run(["create", "item", encoded, "--raw"])
     return json.loads(raw)
+
+
+def edit_item(item_id: str, item: dict) -> dict:
+    """Edit an existing item by ID.
+
+    Syntax confirmed from bw 2026.8.0 --help:
+      bw edit item <id> [encodedJson] [options]
+    The encoded JSON is the full item object, base64-encoded.
+    """
+    encoded = encode_item(item)
+    raw = _run(["edit", "item", item_id, encoded, "--raw"])
+    return json.loads(raw)
+
+
+def delete_item(item_id: str) -> None:
+    """Move an item to trash (soft delete). Use --permanent flag explicitly to hard-delete."""
+    _run(["delete", "item", item_id])
+
+
+def list_personal_items() -> list[dict]:
+    """Return items from the personal vault only (organizationId is null)."""
+    all_items = list_all_items()
+    return [it for it in all_items if not it.get("organizationId")]

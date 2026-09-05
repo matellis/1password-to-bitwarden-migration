@@ -124,7 +124,7 @@ python3 verify.py --personal --account jordan
 
 Desktop `.1pux` exports contain no passkey credentials — this is confirmed by 1Password and by `passkeys.py --from-pux` scanning real exports.  The 1Password CLI (`op`) does not expose passkeys either.  The only path that moves passkeys is iOS 26 Credential Exchange (CXP) via the Single-Vault Pipeline below.
 
-**Decision rule: run exactly one route per vault, never both.**  Running both routes on the same vault guarantees duplicates.  Identify passkey vaults first (search `=passkey` in the 1Password app to see which vaults hold passkeys), then:
+**Decision rule: prefer exactly one route per vault.**  Running both routes on the same vault produces duplicates — but the duplicates are now recoverable.  If a user runs the script route and later does a CXP transfer, `adopt.py` can merge the passkey into the existing org item and remove the personal duplicate (see "If users skip the passkey step" below).  Identify passkey vaults first (search `=passkey` in the 1Password app to see which vaults hold passkeys), then:
 
 - Vaults with passkeys → Single-Vault Pipeline (CXP)
 - All other vaults → `split.py` / `import.py`
@@ -175,7 +175,48 @@ python3 passkeys.py --account family --from-bitwarden
 
 This reads `bw list items` and reports login items whose `fido2Credentials` field is non-empty.  Run after CXP transfers to verify passkeys arrived in Bitwarden.
 
-### 10. Clean up
+### 10. If users skip the passkey step
+
+Some users will complete the script route and never do the CXP transfer.  Their passkeys are silently absent in Bitwarden.  Three tools make this visible and recoverable.
+
+**Markers in the imported items** — run split.py with a passkey inventory and every affected login will have a notice in its notes field:
+
+```bash
+python3 split.py --mark-passkeys passkeys-family.md --account family
+```
+
+The inventory file can be the same markdown file you build for the checklist (`- Site | username | url`) or a Bridge JSON file (`{entries:[{title,username,url}]}`).  The notice reads:
+
+> [1Password migration] This login had a passkey that was NOT migrated. Re-add it via iOS Credential Exchange (see README), or replace this item with the CXP-transferred one.
+
+Users see this in the Bitwarden web vault as soon as they open the item.
+
+**Gap report** — after CXP transfers are supposed to be done, check who is finished:
+
+```bash
+# Load the inventory and confirm what is in Bitwarden
+python3 passkeys.py --account family --manual passkeys-family.md --from-bitwarden --gap-report
+```
+
+This prints: expected passkeys (from inventory), confirmed in Bitwarden, missing, and unexpected.  Always exits 0 — it is a report, not a gate.
+
+Note: org items are visible to the admin.  Personal-vault passkeys require each user to run this themselves.
+
+**adopt.py** — if a user does a late CXP transfer after the script route has already run, personal-vault CXP items and org items now coexist as duplicates.  `adopt.py` merges the passkey into the org item and moves the personal duplicate to trash:
+
+```bash
+# Review the plan first (no writes)
+python3 adopt.py --account family --collection Employee
+
+# Apply after verifying the plan
+python3 adopt.py --account family --collection Employee --apply
+```
+
+`adopt.py` is **EXPERIMENTAL**.  Read the warnings printed by the script before using `--apply`.  Verify with a real passkey sign-in after the first run on a single item before batch use.
+
+Manual fallback: in the Bitwarden web vault, move the CXP-transferred item into the target org collection, then delete the script-imported login that has the passkey notice in its notes.
+
+### 11. Clean up
 
 Keep 1Password active for one full billing cycle to catch anything missed.  When satisfied:
 

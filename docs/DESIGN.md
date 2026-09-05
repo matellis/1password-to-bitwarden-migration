@@ -34,15 +34,27 @@ The three policies exist because teams frequently have partially-populated Bitwa
 
 Personal mode uses a separate ledger file (`state/<account>-personal.json`) so org-mode and personal-mode runs for the same account don't interfere.
 
-## Two routes, one decision rule
+## Two routes, recoverable overlap
 
-For any given vault there are two migration routes.  Run exactly one per vault — never both.  Both routes on the same vault will produce duplicates.
+For any given vault there are two migration routes.
 
 **Script route** (`split.py` / `import.py`): full-fidelity — moves all item types including documents, file attachments, secure notes, credit cards, and identities.  Cannot move passkeys.  Works entirely on desktop from a `.1pux` export.
 
 **CXP route** (iOS 26 Single-Vault Pipeline): moves credentials only — passwords, passkeys, TOTP seeds.  Transfers app-to-app with no plaintext file on disk.  Requires an iOS 26 device and vault-visibility scoping on 1password.com to keep CXP vault-precise.
 
-Decision rule: search `=passkey` in the 1Password app first.  Vaults that contain passkeys go via CXP.  All other vaults go via the script route.  For vaults that contain both passkeys and attachments, split the work: move credentials via CXP, then use the script route for a separate vault (or accept that attachments must be moved manually).
+Prefer exactly one route per vault.  Running both produces duplicates, but they are now recoverable: `adopt.py` merges passkeys from a personal-vault CXP item into the matching org item and moves the personal duplicate to trash.  This closes the "user skipped CXP" scenario without data loss.
+
+Decision rule: search `=passkey` in the 1Password app first.  Vaults that contain passkeys ideally go via CXP.  All other vaults go via the script route.  For vaults that contain both passkeys and attachments, the preferred split is CXP for credentials and script route for attachments.  If a user skips CXP initially, run the script route and use `--mark-passkeys` so the gap is visible; then `adopt.py` can close it later.
+
+## Passkey safety-net features
+
+Three tools make the passkey gap visible and recoverable after the script route runs:
+
+**`split.py --mark-passkeys <file>`** — accepts a markdown inventory (`- Site | username | url`) or a Bridge JSON (`{entries:[...]}`) and appends a human-readable notice to the notes of every generated login whose fingerprint matches an inventory entry.  The notice survives import into Bitwarden and is visible in the web vault.  The `passkeysMarked` count appears in the printed table and manifest.
+
+**`passkeys.py --gap-report`** — loads inventory entries (via `--manual` or `--bridge`) and Bitwarden passkey items (via `--from-bitwarden`) then prints per-account: expected, confirmed, missing, and unexpected.  Always exits 0.
+
+**`adopt.py`** (EXPERIMENTAL) — after a late CXP transfer, lists personal-vault login items that carry `fido2Credentials`, fingerprint-matches them against a target org collection, and for each match: edits the org item to add the passkey, verifies the passkey landed, then soft-deletes the personal duplicate.  Deletes happen only after verification.  Default is dry-run; `--apply` is required to write.  The Bitwarden server may or may not accept `fido2Credentials` on an edit — treat the first `--apply` run as an experiment on a single item.
 
 ## Why passkey inventory is semi-manual
 
