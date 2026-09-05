@@ -114,6 +114,30 @@ class TestEnsureServer(unittest.TestCase):
 
     @patch("lib.bwcli._bw_path", return_value="/usr/bin/bw")
     @patch("subprocess.run")
+    def test_noop_when_bw_reports_unset_default_alias(self, mock_run, mock_path):
+        # Fresh bw installs report the US default as https://bitwarden.com.
+        # That must count as "us" — no churning the global config.
+        mock_run.return_value = self._run_proc(stdout="https://bitwarden.com")
+        ensure_server("us")
+        self.assertEqual(mock_run.call_count, 1)
+        self.assertNotIn("https://vault.bitwarden.com", mock_run.call_args[0][0])
+
+    @patch("lib.bwcli._bw_path", return_value="/usr/bin/bw")
+    @patch("subprocess.run")
+    def test_noop_when_eu_alias_matches(self, mock_run, mock_path):
+        mock_run.return_value = self._run_proc(stdout="https://bitwarden.eu")
+        ensure_server("eu")
+        self.assertEqual(mock_run.call_count, 1)
+
+    @patch("lib.bwcli._bw_path", return_value="/usr/bin/bw")
+    @patch("subprocess.run")
+    def test_trailing_slash_is_normalized(self, mock_run, mock_path):
+        mock_run.return_value = self._run_proc(stdout="https://vault.bitwarden.eu/")
+        ensure_server("eu")
+        self.assertEqual(mock_run.call_count, 1)
+
+    @patch("lib.bwcli._bw_path", return_value="/usr/bin/bw")
+    @patch("subprocess.run")
     def test_per_account_region_switching(self, mock_run, mock_path):
         """Two accounts in different regions trigger two server switches."""
         config_accounts = [

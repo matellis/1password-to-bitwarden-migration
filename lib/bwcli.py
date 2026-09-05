@@ -79,14 +79,27 @@ def _current_server() -> str:
     return result.stdout.strip()
 
 
+_SERVER_ALIASES: dict[str, str] = {
+    "https://bitwarden.com": "https://vault.bitwarden.com",
+    "https://bitwarden.eu": "https://vault.bitwarden.eu",
+}
+
+
+def _normalize_server(url: str) -> str:
+    url = url.strip().rstrip("/")
+    return _SERVER_ALIASES.get(url, url)
+
+
 def ensure_server(spec: str) -> None:
     """Switch the bw CLI server if it does not match spec.
 
     Prints a note to stderr when switching.  Clears BW_SESSION when the server
     changes because the existing session is no longer valid for the new server.
+    bw reports an unset US default as https://bitwarden.com; that and the
+    vault.* spellings are treated as equivalent to avoid churn.
     """
     desired = resolve_server(spec)
-    current = _current_server()
+    current = _normalize_server(_current_server())
     if current == desired:
         return
     print(f"Bitwarden server: {desired}", file=sys.stderr)
