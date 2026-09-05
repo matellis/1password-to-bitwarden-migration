@@ -529,10 +529,16 @@ def main() -> None:
     for account in accounts:
         name = account.get("name", "unknown")
         server = account.get("bitwardenServer", "us")
-        bwcli.ensure_session(server)
+        personal = _is_personal(account, args)
+        email = account.get("bitwardenEmail")
+        if personal and not email:
+            sys.exit(
+                f"Account '{name}': bitwardenEmail is required for mode=personal entries.\n"
+                f"Add \"bitwardenEmail\": \"you@example.com\" to this account in config.json."
+            )
+        bwcli.ensure_session(server, email)
         print("Syncing vault...")
         bwcli.sync()
-        personal = _is_personal(account, args)
         work_dir = Path("work") / name
         manifest_path = work_dir / "manifest.json"
 
@@ -541,6 +547,19 @@ def main() -> None:
             continue
 
         manifest = _load_json(manifest_path)
+
+        if not personal:
+            unclassified = [
+                v["vaultName"] for v in manifest
+                if not v.get("personal") and "destination" not in v
+            ]
+            if unclassified:
+                names = ", ".join(f'"{n}"' for n in unclassified)
+                sys.exit(
+                    f"Account '{name}': manifest contains vaults with no destination: {names}\n"
+                    f"Re-run split.py — it will require vaultDestination entries for these vaults."
+                )
+
         ledger = _load_ledger(name, personal)
         print(f"\nAccount: {name}{' (personal mode)' if personal else ''}")
 
@@ -559,7 +578,14 @@ def main() -> None:
             else:
                 if vault_entry.get("personal"):
                     continue
-                _import_vault(account, vault_entry, work_dir, ledger, args.yes, args.force)
+                result = _import_vault(account, vault_entry, work_dir, ledger, args.yes, args.force)
+                if vault_entry.get("destination") == "owner-only" and result.get("status") in ("ok", "partial"):
+                    print(
+                        f"  [{vault_entry['vaultName']}] POST-IMPORT ACTION REQUIRED:"
+                        f" restrict this collection to the owner in the Bitwarden web vault"
+                        f" (Admin Console > Organizations > Collections > Manage access)."
+                        f" The bw CLI does not support setting collection member permissions."
+                    )
             _save_ledger(name, ledger, personal)
 
     print("\nDone. Run verify.py to confirm the migration.")

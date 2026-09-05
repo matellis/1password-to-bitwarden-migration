@@ -423,6 +423,10 @@ def build_fixture() -> None:
                 "onExisting": "refuse",
                 "skipVaultTypes": ["P"],
                 "vaultRename": {},
+                "vaultDestination": {
+                    "Employee": "shared",
+                    "Shared": "shared",
+                },
             }
         ]
     }

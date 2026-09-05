@@ -48,13 +48,15 @@ python3 import.py --account family
 python3 verify.py --account family
 ```
 
-## Three-account walkthrough
+## Four-entity walkthrough
 
-The exemplar scenario has three accounts: **family**, **team**, and **individual**.
+The exemplar scenario has four destination entities for one person: **my-family** (family org), **team-a** (first team org), **team-b** (second team org), and three personal-vault entries — **me-family**, **me-team-a**, **me-team-b** — one for each 1Password account export, each landing in a different Bitwarden account.
+
+Privacy in Bitwarden is determined by **who has access**, not by vault type.  A user-created vault that only the owner can see must be declared as `"owner-only"` or `"personal"` — the tool will not guess.
 
 ### 1. Create Bitwarden organizations
 
-For each 1Password account, create a Bitwarden organization.  Note the organization UUID from the Bitwarden admin console and put it in `config.json` as `bitwardenOrgId`.
+For each shared 1Password account (family, team-a, team-b), create a Bitwarden organization.  Note the organization UUID from the admin console; put it in `config.json` as `bitwardenOrgId`.
 
 ### 2. Export from 1Password
 
@@ -68,13 +70,18 @@ Save exports to the `exports/` directory (gitignored).
 cp config.example.json config.json
 ```
 
-Fill in:
+Fill in the org entries:
 - `puxPath` — path to each `.1pux` file
 - `bitwardenOrgId` — Bitwarden org UUID for that account
 - `bitwardenServer` — which Bitwarden instance this account lives in (see below)
 - `onExisting` — what to do if a collection already has items (`refuse`, `skip`, `allow`)
 - `skipVaultTypes` — vault types to ignore (default `["P"]` skips Private vaults)
 - `vaultRename` — optional map of `{"1Password vault name": "Bitwarden collection name"}`
+- `vaultDestination` — **required for every non-Private vault** (see below)
+
+Fill in the personal entries (`"mode": "personal"`):
+- `bitwardenEmail` — **required**: the Bitwarden account email this vault will land in
+- `vaultRename` — use this to avoid three colliding "Private" folders, e.g. `{"Private": "Private (Family)"}`
 
 **`bitwardenServer` values**
 
@@ -86,7 +93,23 @@ Fill in:
 
 JSON has no comment syntax, so the key serves as its own documentation.  Omitting `bitwardenServer` is identical to setting it to `"us"`.
 
-**Accounts spanning regions:** the bw CLI's server setting is global.  When you run `import.py` or `verify.py` without `--account`, the scripts iterate over all accounts and switch the CLI's server as they go.  You will be asked to log in once per region.  If you have accounts in both US and EU clouds, running per-account (`--account family`) is cleaner than running across all accounts in one pass.
+**Accounts spanning regions:** the bw CLI's server setting is global.  When you run `import.py` or `verify.py` without `--account`, the scripts iterate over all accounts and switch the CLI's server as they go.  You will be asked to log in once per region.  Running per-account (`--account my-family`) is cleaner when accounts span US and EU clouds.
+
+**`vaultDestination` — your privacy decision**
+
+Every non-Private vault must be explicitly classified.  The tool refuses to guess.  `split.py` will list any unclassified vault names and show an example snippet.
+
+| Destination | Meaning |
+| --- | --- |
+| `"shared"` | Imported as a normal org collection — all org members may be granted access. |
+| `"owner-only"` | Imported as an org collection intended for the owner only.  The bw CLI cannot set member permissions; after import you must restrict the collection in the Bitwarden web vault (Admin Console > Organizations > Collections > Manage access).  The tool prints a post-import reminder listing the collections to restrict. |
+| `"personal"` | Routed to personal-mode output — same handling as the built-in Private vault.  This vault is skipped in the org-mode run and should be processed by a personal-mode entry. |
+
+**`bitwardenEmail` — per-account identity guard**
+
+Personal-mode entries each land in a separate Bitwarden account.  `bitwardenEmail` is required for every `mode: personal` entry and is optional (but enforced when present) for org entries.  When the CLI is logged in as a different account, the scripts log out and re-authenticate to the correct account automatically.
+
+**`bitwardenEmail`** is also recommended for org entries when you want the same protection — set it to the Bitwarden admin account email for that org.
 
 ### 4. Split (offline, safe to re-run)
 
@@ -139,10 +162,10 @@ Private vaults are not exported by the admin `.1pux` (by 1Password design).  Eac
 **Desktop only:** Use personal mode.  Passkeys do not move this way — re-register them per site after migration.
 
 ```bash
-# In the user's own copy of config.json, set "mode": "personal" on their account entry.
-python3 split.py --personal --account jordan
-python3 import.py --personal --account jordan
-python3 verify.py --personal --account jordan
+# In config.json, add a mode=personal entry with bitwardenEmail set.
+python3 split.py --personal --account me-family
+python3 import.py --personal --account me-family
+python3 verify.py --personal --account me-family
 ```
 
 ### 9. Passkeys

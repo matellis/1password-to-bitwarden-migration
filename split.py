@@ -58,6 +58,43 @@ def _mark_items(items: list[dict], inventory: list[dict]) -> int:
     return count
 
 
+def _check_vault_destinations(
+    vault_list: list[dict],
+    vault_rename: dict[str, str],
+    skip_vault_types: set[str],
+    vault_destination: dict[str, str],
+) -> list[str]:
+    """Return original names of non-skipped vaults that lack a destination classification."""
+    unclassified = []
+    for vault in vault_list:
+        attrs = vault.get("attrs") or {}
+        vault_type = attrs.get("type", "")
+        vault_name = attrs.get("name", attrs.get("uuid", "vault"))
+        if vault_type in skip_vault_types:
+            continue
+        if vault_name not in vault_destination:
+            unclassified.append(vault_name)
+    return unclassified
+
+
+def _check_vault_destinations_personal(
+    vault_list: list[dict],
+    vault_rename: dict[str, str],
+    vault_destination: dict[str, str],
+) -> list[str]:
+    """Return original names of non-P vaults in a personal-mode account that lack a destination."""
+    unclassified = []
+    for vault in vault_list:
+        attrs = vault.get("attrs") or {}
+        vault_type = attrs.get("type", "")
+        vault_name = attrs.get("name", attrs.get("uuid", "vault"))
+        if vault_type == "P":
+            continue
+        if vault_name not in vault_destination:
+            unclassified.append(vault_name)
+    return unclassified
+
+
 def _process_account(account: dict, work_dir: Path, include_archived: bool,
                      inventory: list[dict] | None = None) -> list[dict]:
     pux_path = Path(account["puxPath"])
@@ -67,20 +104,40 @@ def _process_account(account: dict, work_dir: Path, include_archived: bool,
     org_id = account["bitwardenOrgId"]
     skip_vault_types = set(account.get("skipVaultTypes", ["P"]))
     vault_rename = account.get("vaultRename", {})
+    vault_destination = account.get("vaultDestination", {})
 
     files_dir = work_dir / "files"
     export_data, files_map = onepux.parse_export(pux_path, files_dir)
 
     vault_list = onepux.vaults(export_data)
+
+    unclassified = _check_vault_destinations(
+        vault_list, vault_rename, skip_vault_types, vault_destination
+    )
+    if unclassified:
+        names = ", ".join(f'"{n}"' for n in unclassified)
+        example = json.dumps(
+            {"vaultDestination": {unclassified[0]: "shared"}}, indent=2
+        )
+        sys.exit(
+            f"Account '{account.get('name', '?')}': unclassified vaults: {names}\n"
+            f"Add each vault to vaultDestination in config.json. Example:\n{example}\n"
+            f"Valid destinations: shared, owner-only, personal"
+        )
+
     manifest_entries: list[dict] = []
 
     for vault in vault_list:
         attrs = vault.get("attrs") or {}
         vault_type = attrs.get("type", "")
-        vault_name = attrs.get("name", attrs.get("uuid", "vault"))
-        vault_name = vault_rename.get(vault_name, vault_name)
+        vault_name_orig = attrs.get("name", attrs.get("uuid", "vault"))
+        vault_name = vault_rename.get(vault_name_orig, vault_name_orig)
 
         if vault_type in skip_vault_types:
+            continue
+
+        destination = vault_destination.get(vault_name_orig, "shared")
+        if destination == "personal":
             continue
 
         items = vault.get("items") or []
@@ -123,6 +180,7 @@ def _process_account(account: dict, work_dir: Path, include_archived: bool,
         manifest_entries.append({
             "vaultName": vault_name,
             "vaultType": vault_type,
+            "destination": destination,
             "slug": slug,
             "collectionId": collection_id,
             "collectionName": vault_name,
@@ -146,21 +204,34 @@ def _process_account_personal(account: dict, work_dir: Path, include_archived: b
         sys.exit(f"Export file not found: {pux_path}")
 
     vault_rename = account.get("vaultRename", {})
+    vault_destination = account.get("vaultDestination", {})
 
     files_dir = work_dir / "files"
     export_data, files_map = onepux.parse_export(pux_path, files_dir)
 
     vault_list = onepux.vaults(export_data)
+
+    unclassified = _check_vault_destinations_personal(vault_list, vault_rename, vault_destination)
+    for n in unclassified:
+        print(
+            f"  [{account.get('name', '?')}] Warning: vault {n!r} has no vaultDestination"
+            f" in personal mode — skipped (org mode handles it).",
+            file=sys.stderr,
+        )
+
     manifest_entries: list[dict] = []
 
     for vault in vault_list:
         attrs = vault.get("attrs") or {}
         vault_type = attrs.get("type", "")
-        if vault_type != "P":
-            continue
+        vault_name_raw = attrs.get("name", attrs.get("uuid", "vault"))
+        vault_name = vault_rename.get(vault_name_raw, vault_name_raw)
 
-        vault_name = attrs.get("name", attrs.get("uuid", "vault"))
-        vault_name = vault_rename.get(vault_name, vault_name)
+        if vault_type != "P":
+            dest = vault_destination.get(vault_name_raw, "")
+            if dest != "personal":
+                continue
+
         slug = onepux.vault_slug(attrs)
 
         items = vault.get("items") or []
@@ -216,6 +287,7 @@ def _process_account_personal(account: dict, work_dir: Path, include_archived: b
         manifest_entries.append({
             "vaultName": vault_name,
             "vaultType": vault_type,
+            "destination": "personal",
             "slug": slug,
             "folderId": folder_id,
             "folderName": vault_name,
@@ -247,7 +319,8 @@ def _print_table(account_name: str, entries: list[dict]) -> None:
     show_marked = any(e["counts"].get("passkeysMarked", 0) > 0 for e in entries)
     print(f"\nAccount: {account_name}")
     header = (
-        f"  {'Vault':<30} {'Type':<6} {'Total':>7} {'Bulk':>7} {'Attach':>7}"
+        f"  {'Vault':<30} {'Type':<6} {'Destination':<12}"
+        f" {'Total':>7} {'Bulk':>7} {'Attach':>7}"
         f" {'Archived':>9} {'Dupes':>6}"
         + (f" {'Marked':>7}" if show_marked else "")
     )
@@ -255,8 +328,9 @@ def _print_table(account_name: str, entries: list[dict]) -> None:
     print("  " + "-" * (len(header) - 2))
     for e in entries:
         c = e["counts"]
+        dest = e.get("destination", "")
         row = (
-            f"  {e['vaultName']:<30} {e['vaultType']:<6}"
+            f"  {e['vaultName']:<30} {e['vaultType']:<6} {dest:<12}"
             f" {c['total']:>7} {c['bulk']:>7} {c['attachment']:>7}"
             f" {c['archivedSkipped']:>9} {c['dupesCollapsed']:>6}"
         )

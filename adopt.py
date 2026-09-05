@@ -189,7 +189,8 @@ def main() -> None:
         sys.exit("No org ID. Pass --organizationid or set bitwardenOrgId in config.")
 
     server = account.get("bitwardenServer", "us")
-    bwcli.ensure_session(server)
+    email = account.get("bitwardenEmail")
+    bwcli.ensure_session(server, email)
 
     print(f"\nLooking up collection '{args.collection}' in org {org_id} ...")
     collection_id = _find_collection_id(org_id, args.collection)

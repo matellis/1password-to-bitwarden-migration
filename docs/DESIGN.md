@@ -54,6 +54,26 @@ Three tools make the passkey gap visible and recoverable after the script route 
 
 **`adopt.py`** (EXPERIMENTAL) — after a late CXP transfer, lists personal-vault login items that carry `fido2Credentials`, fingerprint-matches them against a target org collection, and for each match: edits the org item to add the passkey, verifies the passkey landed, then soft-deletes the personal duplicate.  Deletes happen only after verification.  Default is dry-run; `--apply` is required to write.  The Bitwarden server may or may not accept `fido2Credentials` on an edit — treat the first `--apply` run as an experiment on a single item.
 
+## Privacy routing and vault destination classification
+
+1Password uses vault type as a rough privacy signal (type P = Private, visible only to the owner) but user-created vaults (type U, E, etc.) may also be owner-only in practice — the `.1pux` format carries no ACL data.  Routing every non-P vault to an org collection without asking would silently expose owner-only content to org members.
+
+The tool therefore requires an explicit destination declaration for every non-Private vault via the `vaultDestination` config key.  `split.py` and `import.py` refuse with a clear error listing the unclassified vault names if any non-P vault lacks a declaration.  Type P always routes personal (safe default); everything else is the user's decision.
+
+Three destinations are supported:
+
+- **shared** — normal org collection; all org members may be granted access.
+- **owner-only** — org collection restricted to the owner.  The bw CLI (2026.8.0) does not expose collection member permission management: `bw edit org-collection` can rename a collection but cannot set per-member access.  The tool creates the collection and imports into it, then prints a post-import notice listing the collections to restrict in the Bitwarden web vault (Admin Console > Organizations > Collections > Manage access).  Restricting access is a manual step.
+- **personal** — routed to personal-mode output alongside the built-in Private vault.  Skipped in org-mode runs; should be handled by a personal-mode config entry.
+
+## Login identity guard
+
+`ensure_session` in `lib/bwcli.py` now accepts an `expected_email` parameter.  When the bw CLI is already unlocked, the script reads `userEmail` from `bw status` JSON and compares it case-insensitively to the expected email.  A mismatch triggers `bw logout`, clears `BW_SESSION`, and re-authenticates to the correct account.  This prevents a second personal-mode import from silently landing in the wrong Bitwarden vault when accounts share the same machine.
+
+`bitwardenEmail` is required in config for every `mode: personal` entry.  `import.py` and `verify.py` exit with a clear error if a personal entry lacks it.  For org entries the field is optional; when present, the same guard applies.
+
+`adopt.py` threads `bitwardenEmail` from the account entry into `ensure_session`.  `passkeys.py --from-bitwarden` takes a `--server` flag but no account entry and is therefore account-agnostic; it does not enforce the email guard.
+
 ## Why passkey inventory is semi-manual
 
 No desktop export or CLI path can enumerate which 1Password items have passkeys.  The `.1pux` format carries no passkey fields; the `op` CLI JSON schema has no passkey support.  The only reliable inventory source is the 1Password app itself, via the `=passkey` search filter.

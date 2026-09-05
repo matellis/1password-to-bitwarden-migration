@@ -156,16 +156,21 @@ def _bw_path() -> str:
     return path
 
 
-def _bw_status() -> str:
-    """Return the vault status string from `bw status`."""
+def _bw_status_full() -> dict:
+    """Return the full status dict from `bw status`."""
     try:
         raw = _run(["status"])
     except BWError:
-        return "unauthenticated"
+        return {"status": "unauthenticated", "userEmail": ""}
     try:
-        return json.loads(raw).get("status", "unauthenticated")
+        return json.loads(raw)
     except json.JSONDecodeError:
         raise BWError(f"bw status returned non-JSON: {raw!r}")
+
+
+def _bw_status() -> str:
+    """Return the vault status string from `bw status`."""
+    return _bw_status_full().get("status", "unauthenticated")
 
 
 def _spawn(cmd: list[str], *, capture_stdout: bool = False) -> str:
@@ -186,7 +191,7 @@ def _spawn(cmd: list[str], *, capture_stdout: bool = False) -> str:
     return result.stdout.strip() if capture_stdout else ""
 
 
-def ensure_session(server: str = "us") -> None:
+def ensure_session(server: str = "us", expected_email: str | None = None) -> None:
     """Log in and unlock Bitwarden, storing the session key in os.environ['BW_SESSION'].
 
     Non-interactive env vars (all optional):
@@ -198,13 +203,35 @@ def ensure_session(server: str = "us") -> None:
 
     server: 'us' (default), 'eu', or a full https:// URL.  ensure_server() runs
     first so a server switch surfaces as unauthenticated and triggers login.
+
+    expected_email: when provided, the logged-in account email is checked (case-insensitive).
+    A session for the wrong account triggers logout and fresh authentication.
+    When logging in interactively, the email is passed to `bw login <email> --raw`.
     """
     ensure_server(server)
     bw = _bw_path()
-    vault_status = _bw_status()
+    status_data = _bw_status_full()
+    vault_status = status_data.get("status", "unauthenticated")
 
-    if vault_status == "unlocked":
-        return
+    if vault_status in ("unlocked", "locked"):
+        if expected_email is not None:
+            live_email = (status_data.get("userEmail") or "").lower()
+            if live_email != expected_email.lower():
+                print(
+                    f"Bitwarden: logged in as {live_email!r}, expected {expected_email.lower()!r}"
+                    f" — logging out to re-authenticate.",
+                    file=sys.stderr,
+                )
+                _spawn([bw, "logout"])
+                if os.environ.get("BW_SESSION"):
+                    del os.environ["BW_SESSION"]
+                vault_status = "unauthenticated"
+            elif vault_status == "unlocked":
+                return
+            # locked + correct email: fall through to unlock
+        elif vault_status == "unlocked":
+            return
+        # locked + no expected_email: fall through to unlock
 
     if vault_status == "unauthenticated":
         if os.environ.get("BW_CLIENTID") and os.environ.get("BW_CLIENTSECRET"):
@@ -213,15 +240,29 @@ def ensure_session(server: str = "us") -> None:
         else:
             print("Not logged in to Bitwarden — starting bw login...", file=sys.stderr)
             session = ""
+            login_cmd = [bw, "login"]
+            if expected_email:
+                login_cmd.append(expected_email)
+            login_cmd.append("--raw")
             try:
-                session = _spawn([bw, "login", "--raw"], capture_stdout=True)
+                session = _spawn(login_cmd, capture_stdout=True)
             except BWError:
-                # --raw failed; fall back to fully interactive login then unlock
-                _spawn([bw, "login"])
+                fallback_cmd = [bw, "login"]
+                if expected_email:
+                    fallback_cmd.append(expected_email)
+                _spawn(fallback_cmd)
             if session:
                 os.environ["BW_SESSION"] = session
-                if _bw_status() != "unlocked":
+                post_data = _bw_status_full()
+                if post_data.get("status") != "unlocked":
                     raise BWError("Bitwarden vault is not unlocked after login")
+                if expected_email:
+                    post_email = (post_data.get("userEmail") or "").lower()
+                    if post_email != expected_email.lower():
+                        raise BWError(
+                            f"Bitwarden: logged in as {post_email!r} but expected"
+                            f" {expected_email.lower()!r} — wrong account"
+                        )
                 return
 
     print("Unlocking vault...", file=sys.stderr)
@@ -233,9 +274,16 @@ def ensure_session(server: str = "us") -> None:
     if not session:
         raise BWError("bw unlock --raw returned no session key")
     os.environ["BW_SESSION"] = session
-
-    if _bw_status() != "unlocked":
+    post_data = _bw_status_full()
+    if post_data.get("status") != "unlocked":
         raise BWError("Bitwarden vault is not unlocked after unlock attempt")
+    if expected_email:
+        post_email = (post_data.get("userEmail") or "").lower()
+        if post_email != expected_email.lower():
+            raise BWError(
+                f"Bitwarden: unlocked as {post_email!r} but expected"
+                f" {expected_email.lower()!r} — wrong account"
+            )
 
 
 def check_prereqs() -> None:

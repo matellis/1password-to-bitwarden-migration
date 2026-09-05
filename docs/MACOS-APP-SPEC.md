@@ -126,8 +126,8 @@ No "skip intro" — the safety language is intentional. But it is short.
 ### Screen 2 — Drop or pick export files
 
 One section per account to migrate. For each, a drop target that accepts `.1pux` files
-plus a "Choose file" button backed by `NSOpenPanel`. The exemplar shows three accounts:
-family, team, and individual.
+plus a "Choose file" button backed by `NSOpenPanel`. The exemplar shows three shared accounts
+(my-family, team-a, team-b) and three personal entries (me-family, me-team-a, me-team-b).
 
 Validation runs immediately on drop: the app checks that the file is a valid `.1pux`
 archive (zip with an `export.data` entry) and shows a green checkmark or a plain-
@@ -160,10 +160,16 @@ from the `.1pux`). Right column: editable destination collection name.
 ### Screen 4 — Plan view
 
 The app runs `split.py` (offline, no network) and renders the output as a native table:
-one row per vault, columns for item count, attachment count, and passkey presence.
-Vaults with passkeys show a distinct glyph and a note: "Contains passkeys — the items
-will import, but the passkeys themselves cannot move through the script route. See the
-passkey handoff screen."
+one row per vault, columns for destination classification, item count, attachment count,
+and passkey presence.  Vaults with passkeys show a distinct glyph and a note: "Contains
+passkeys — the items will import, but the passkeys themselves cannot move through the
+script route. See the passkey handoff screen."
+
+The destination column shows the classification for each vault (shared, owner-only,
+personal).  Vaults with no classification are flagged in red with a prompt to open
+the vault mapping sheet (see Screen 3) and assign a destination before proceeding.
+`split.py` refuses with a non-zero exit if any non-Private vault is unclassified, so
+the "Start Import" button stays disabled until all vaults have a declared destination.
 
 A disclosure triangle per vault row expands to the item-type breakdown (logins, secure
 notes, cards, identities, SSH keys, documents).
@@ -172,7 +178,7 @@ A "Run dry run" label above the table clarifies: "Nothing has been written yet. 
 this before continuing."
 
 The "Start Import" button is disabled until at least one account's files and org are
-validated.
+validated and all vaults have a destination classification.
 
 ### Screen 5 — Bitwarden unlock
 

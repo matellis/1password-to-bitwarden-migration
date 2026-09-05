@@ -1,41 +1,81 @@
 {
   "accounts": [
     {
-      "name": "family",
-      "puxPath": "exports/<family-account-uuid>.1pux",
-      "bitwardenOrgId": "<family-org-uuid>",
+      "name": "my-family",
+      "puxPath": "exports/<my-family-account-uuid>.1pux",
+      "bitwardenOrgId": "<my-family-org-uuid>",
       "bitwardenServer": "us",
       "onExisting": "refuse",
       "skipVaultTypes": ["P"],
-      "vaultRename": {}
+      "vaultRename": {},
+      "vaultDestination": {
+        "Shared": "shared",
+        "Finances": "owner-only"
+      }
     },
     {
-      "name": "team",
-      "puxPath": "exports/<team-account-uuid>.1pux",
-      "bitwardenOrgId": "<team-org-uuid>",
+      "name": "team-a",
+      "puxPath": "exports/<team-a-account-uuid>.1pux",
+      "bitwardenOrgId": "<team-a-org-uuid>",
       "bitwardenServer": "us",
       "onExisting": "refuse",
       "skipVaultTypes": ["P"],
       "vaultRename": {
         "Shared": "All-Staff"
+      },
+      "vaultDestination": {
+        "Shared": "shared",
+        "Engineering": "shared",
+        "Ops": "shared"
       }
     },
     {
-      "name": "individual",
-      "puxPath": "exports/<individual-account-uuid>.1pux",
-      "bitwardenOrgId": "<individual-org-uuid>",
-      "bitwardenServer": "us",
+      "name": "team-b",
+      "puxPath": "exports/<team-b-account-uuid>.1pux",
+      "bitwardenOrgId": "<team-b-org-uuid>",
+      "bitwardenServer": "eu",
       "onExisting": "refuse",
       "skipVaultTypes": ["P"],
-      "vaultRename": {}
+      "vaultRename": {},
+      "vaultDestination": {
+        "Shared": "shared"
+      }
     },
     {
-      "name": "family-private",
+      "name": "me-family",
       "mode": "personal",
-      "puxPath": "exports/<family-account-uuid>.1pux",
+      "bitwardenEmail": "me@example.com",
+      "puxPath": "exports/<my-family-account-uuid>.1pux",
       "bitwardenServer": "us",
       "onExisting": "refuse",
-      "vaultRename": {}
+      "vaultRename": {
+        "Private": "Private (Family)"
+      },
+      "vaultDestination": {}
+    },
+    {
+      "name": "me-team-a",
+      "mode": "personal",
+      "bitwardenEmail": "me@team-a-domain.example.com",
+      "puxPath": "exports/<team-a-account-uuid>.1pux",
+      "bitwardenServer": "us",
+      "onExisting": "refuse",
+      "vaultRename": {
+        "Private": "Private (Team A)"
+      },
+      "vaultDestination": {}
+    },
+    {
+      "name": "me-team-b",
+      "mode": "personal",
+      "bitwardenEmail": "me@team-b-domain.example.com",
+      "puxPath": "exports/<team-b-account-uuid>.1pux",
+      "bitwardenServer": "eu",
+      "onExisting": "refuse",
+      "vaultRename": {
+        "Private": "Private (Team B)"
+      },
+      "vaultDestination": {}
     }
   ]
 }

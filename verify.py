@@ -336,10 +336,16 @@ def main() -> None:
     for account in accounts:
         name = account.get("name", "unknown")
         server = account.get("bitwardenServer", "us")
-        bwcli.ensure_session(server)
+        personal = _is_personal(account, args)
+        email = account.get("bitwardenEmail")
+        if personal and not email:
+            sys.exit(
+                f"Account '{name}': bitwardenEmail is required for mode=personal entries.\n"
+                f"Add \"bitwardenEmail\": \"you@example.com\" to this account in config.json."
+            )
+        bwcli.ensure_session(server, email)
         bwcli.sync()
         policy = account.get("onExisting", "refuse")
-        personal = _is_personal(account, args)
         work_dir = Path("work") / name
         manifest_path = work_dir / "manifest.json"
 
