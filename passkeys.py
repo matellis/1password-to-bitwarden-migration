@@ -475,6 +475,8 @@ def main() -> None:
         print(f"Written to {out_path}")
 
     if args.from_bitwarden:
+        from lib import bwcli as _bwcli
+        _bwcli.ensure_session()
         account_name = args.account or "bitwarden"
         print("Syncing and checking Bitwarden for passkey-bearing items...")
         entries = from_bitwarden(account_name)

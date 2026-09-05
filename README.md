@@ -22,7 +22,7 @@ See [docs/LIMITATIONS.md](docs/LIMITATIONS.md) for the full list.  The short ver
 ## Prerequisites
 
 - Python 3.9 or later
-- [Bitwarden CLI](https://bitwarden.com/help/cli/) (`bw`) installed and logged in
+- [Bitwarden CLI](https://bitwarden.com/help/cli/) (`bw`) installed
 - A Bitwarden organization per account you want to migrate to
 - A `.1pux` export from 1Password (File → Export → All Items → 1PUX format)
 
@@ -41,8 +41,7 @@ mkdir -p exports/
 # Step 1 — inspect the plan (no writes anywhere)
 python3 split.py
 
-# Step 2 — import (requires bw session)
-export BW_SESSION="$(bw unlock --raw)"
+# Step 2 — import (scripts log in and unlock automatically)
 python3 import.py --account family
 
 # Step 3 — verify
@@ -87,11 +86,10 @@ This reads the `.1pux` files and writes `work/<account>/` with one JSON file per
 ### 5. Import (one account at a time)
 
 ```bash
-export BW_SESSION="$(bw unlock --raw)"
 python3 import.py --account family
 ```
 
-The tool checks the `state/<account>.json` ledger and skips vaults already imported.  Use `--force` to re-import.
+The script logs in and unlocks Bitwarden automatically.  If your vault has 2FA, the interactive prompt appears in the terminal.  The tool checks the `state/<account>.json` ledger and skips vaults already imported.  Use `--force` to re-import.
 
 ### 6. Verify
 
@@ -104,6 +102,20 @@ Compares source 1pux data field-by-field against live Bitwarden data.  Exits 0 o
 ### 7. Invite users and assign permissions
 
 1Password exports contain no ACL data, so collection permissions must be set manually in the Bitwarden admin console after import.  Invite users to the Bitwarden org and grant them access to the appropriate collections.
+
+### Non-interactive (CI) authentication
+
+All scripts call `bw login` and `bw unlock` automatically. For headless environments, set these environment variables before running:
+
+| Variable | Purpose |
+| --- | --- |
+| `BW_CLIENTID` | API key client ID (from Bitwarden account settings) |
+| `BW_CLIENTSECRET` | API key client secret |
+| `BW_PASSWORD` | Master password for non-interactive vault unlock |
+
+When `BW_CLIENTID` and `BW_CLIENTSECRET` are both set, the scripts use `bw login --apikey` instead of prompting for email and password. When `BW_PASSWORD` is set, unlock is non-interactive. 2FA is handled automatically by the interactive terminal flow when these env vars are absent.
+
+The session key is held only in memory (`BW_SESSION` env var for the process lifetime) and is never written to disk or logged.
 
 ### 8. Private vaults — user self-service
 

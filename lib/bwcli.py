@@ -7,6 +7,12 @@ bw list items flag confirmed via `bw list --help` (bw 2026.8.0):
 bw import flag confirmed via `bw import --help`:
   --organizationid <id>    org to import into
 
+bw login/unlock flags confirmed via --help (bw 2026.8.0):
+  bw login --raw           print only the session key to stdout
+  bw login --apikey        log in with BW_CLIENTID / BW_CLIENTSECRET env vars
+  bw unlock --raw          print only the session key to stdout
+  bw unlock --passwordenv  env var name whose value is the master password
+
 SSH key type 5 is supported in bw 2026.8.0.
 """
 
@@ -71,17 +77,86 @@ def _bw_path() -> str:
     return path
 
 
-def check_prereqs() -> None:
-    _bw_path()
-    status_raw = _run(["status", "--raw"])
+def _bw_status() -> str:
+    """Return the vault status string from `bw status`."""
     try:
-        status = json.loads(status_raw)
+        raw = _run(["status"])
+    except BWError:
+        return "unauthenticated"
+    try:
+        return json.loads(raw).get("status", "unauthenticated")
     except json.JSONDecodeError:
-        raise BWError(f"bw status returned non-JSON: {status_raw!r}")
-    if status.get("status") == "unauthenticated":
-        raise NotLoggedIn("bw: not logged in — run: bw login")
-    if status.get("status") == "locked":
-        raise NotUnlocked("bw: vault is locked — run: bw unlock and export BW_SESSION")
+        raise BWError(f"bw status returned non-JSON: {raw!r}")
+
+
+def _spawn(cmd: list[str], *, capture_stdout: bool = False) -> str:
+    """Run an auth command with stdin/stderr inherited; optionally capture stdout."""
+    try:
+        result = subprocess.run(
+            cmd,
+            stdin=sys.stdin,
+            stderr=sys.stderr,
+            stdout=subprocess.PIPE if capture_stdout else None,
+            text=capture_stdout,
+            env=os.environ.copy(),
+        )
+    except FileNotFoundError:
+        raise BWError("bw not found on PATH — install the Bitwarden CLI first")
+    if result.returncode != 0:
+        raise BWError(f"bw {cmd[1]} failed (exit {result.returncode})")
+    return result.stdout.strip() if capture_stdout else ""
+
+
+def ensure_session() -> None:
+    """Log in and unlock Bitwarden, storing the session key in os.environ['BW_SESSION'].
+
+    Non-interactive env vars (all optional):
+      BW_CLIENTID / BW_CLIENTSECRET  — API key login (skips email/password prompt)
+      BW_PASSWORD                    — master password for non-interactive unlock
+
+    2FA is handled by the interactive terminal flow when env vars are absent.
+    The session key is never printed or written to disk.
+    """
+    bw = _bw_path()
+    vault_status = _bw_status()
+
+    if vault_status == "unlocked":
+        return
+
+    if vault_status == "unauthenticated":
+        if os.environ.get("BW_CLIENTID") and os.environ.get("BW_CLIENTSECRET"):
+            print("Not logged in to Bitwarden — starting bw login (API key)...", file=sys.stderr)
+            _spawn([bw, "login", "--apikey"])
+        else:
+            print("Not logged in to Bitwarden — starting bw login...", file=sys.stderr)
+            session = ""
+            try:
+                session = _spawn([bw, "login", "--raw"], capture_stdout=True)
+            except BWError:
+                # --raw failed; fall back to fully interactive login then unlock
+                _spawn([bw, "login"])
+            if session:
+                os.environ["BW_SESSION"] = session
+                if _bw_status() != "unlocked":
+                    raise BWError("Bitwarden vault is not unlocked after login")
+                return
+
+    print("Unlocking vault...", file=sys.stderr)
+    unlock_cmd = [bw, "unlock"]
+    if os.environ.get("BW_PASSWORD"):
+        unlock_cmd += ["--passwordenv", "BW_PASSWORD"]
+    unlock_cmd.append("--raw")
+    session = _spawn(unlock_cmd, capture_stdout=True)
+    if not session:
+        raise BWError("bw unlock --raw returned no session key")
+    os.environ["BW_SESSION"] = session
+
+    if _bw_status() != "unlocked":
+        raise BWError("Bitwarden vault is not unlocked after unlock attempt")
+
+
+def check_prereqs() -> None:
+    ensure_session()
 
 
 def sync() -> None:

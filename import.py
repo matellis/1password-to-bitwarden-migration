@@ -525,8 +525,7 @@ def main() -> None:
             sys.exit(f"Account '{args.account}' not found in config.")
 
     print("import.py — Bitwarden per-vault import")
-    print("Checking bw prerequisites...")
-    bwcli.check_prereqs()
+    bwcli.ensure_session()
     print("Syncing vault...")
     bwcli.sync()
 

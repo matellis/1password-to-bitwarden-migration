@@ -329,7 +329,7 @@ def main() -> None:
             sys.exit(f"Account '{args.account}' not found in config.")
 
     print("verify.py — field-level 1pux vs Bitwarden verification")
-    bwcli.check_prereqs()
+    bwcli.ensure_session()
     bwcli.sync()
 
     all_pass = True
