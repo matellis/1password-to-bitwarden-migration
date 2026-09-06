@@ -108,7 +108,9 @@ When the account sets `opAccount` and `op` is installed and signed in, `split.py
 - If a group fails to expand, whatever was resolved from direct members is still written, and the console line names the group(s) that need a manual check.
 - If `op` is not installed, or the per-vault `op` lookup fails for any reason, this step is silently skipped and the old name-substring guess applies: `"shared"` if the vault name contains "shared", `"personal"` if it contains "private" or "personal", otherwise an empty string.
 
-`opAccount` is passed to every `op` call as `--account <opAccount>`.
+`opAccount` is passed to every `op` call as `--account <opAccount>`.  Its value is the shorthand shown by `op account list` (e.g. `my` for `my.1password.com`).
+
+Signing in: enable **Settings → Developer → Integrate with 1Password CLI** in the 1Password 8 desktop app — then `op` authenticates through the unlocked app and no `op signin` is needed.  If you use `op signin` instead, it only works via `eval $(op signin)` and the session token does not carry over to other terminals (including the ones these scripts spawn from), so app integration is strongly recommended.  `op account list` shows registered accounts even when nothing is signed in — use `op whoami` to confirm sign-in actually works.
 
 | Destination | Meaning |
 | --- | --- |
