@@ -78,6 +78,7 @@ Fill in the org entries:
 - `skipVaultTypes` — vault types to ignore (default `["P"]` skips Private vaults)
 - `vaultRename` — optional map of `{"1Password vault name": "Bitwarden collection name"}`
 - `vaultDestination` — **required for every non-Private vault** (see below)
+- `opAccount` — the `op account list` shorthand for the 1Password account this entry's export came from.  **Required** for the `op`-based auto-resolution described below (without it, `op` is never consulted — in multi-account setups the `op` default account is ambiguous and could return sharing data for the wrong account); also used by `verify.py --op`.
 
 Fill in the personal entries (`"mode": "personal"`):
 - `bitwardenEmail` — **required**: the Bitwarden account email this vault will land in
@@ -97,7 +98,17 @@ JSON has no comment syntax, so the key serves as its own documentation.  Omittin
 
 **`vaultDestination` — your privacy decision**
 
-Every non-Private vault must be explicitly classified.  When `split.py` finds an unclassified vault, it writes a guess into `config.json` for you to confirm: `"shared"` if the vault name contains "shared", `"personal"` if it contains "private" or "personal", otherwise an empty string.  Existing entries — including ones you deliberately left blank — are never overwritten.  Org mode still exits non-zero after writing so you can review the guesses in `config.json` before re-running; personal mode warns and skips instead.
+Every non-Private vault must be explicitly classified.  When `split.py` finds an unclassified vault, it writes a guess into `config.json` for you to confirm.  Existing entries — including ones you deliberately left blank — are never overwritten.  Org mode still exits non-zero after writing so you can review the guesses in `config.json` before re-running; personal mode warns and skips instead.
+
+When the account sets `opAccount` and `op` is installed and signed in, `split.py` tries to resolve the vault's real sharing info before falling back to the name-substring guess:
+
+- `op vault user list` and `op vault group list` return the vault's direct members and groups; each group is expanded with `op user list --group` to collect its members' emails.
+- No members and no groups beyond the owner → the guess is written as `"owner-only"`.
+- Members found (after excluding the vault owner's own email, from `op whoami`) → the guess is written as the object form `{"destination": "shared", "shareWith": [...]}` with the resolved, deduped, sorted email list.
+- If a group fails to expand, whatever was resolved from direct members is still written, and the console line names the group(s) that need a manual check.
+- If `op` is not installed, or the per-vault `op` lookup fails for any reason, this step is silently skipped and the old name-substring guess applies: `"shared"` if the vault name contains "shared", `"personal"` if it contains "private" or "personal", otherwise an empty string.
+
+`opAccount` is passed to every `op` call as `--account <opAccount>`.
 
 | Destination | Meaning |
 | --- | --- |

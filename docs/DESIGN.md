@@ -58,7 +58,15 @@ Three tools make the passkey gap visible and recoverable after the script route 
 
 1Password uses vault type as a rough privacy signal (type P = Private, visible only to the owner) but user-created vaults (type U, E, etc.) may also be owner-only in practice — the `.1pux` format carries no ACL data.  Routing every non-P vault to an org collection without asking would silently expose owner-only content to org members.
 
-The tool therefore requires an explicit destination declaration for every non-Private vault via the `vaultDestination` config key.  When `split.py` finds a non-P vault lacking a declaration, it writes a guess into `config.json` (`"shared"` if the vault name contains "shared", `"personal"` if it contains "private" or "personal", otherwise `""`), then org mode exits with a clear error asking the user to review and confirm the written value; `import.py` refuses the same way if the manifest still carries no destination.  Existing entries, including deliberately blank ones, are never overwritten. Type P always routes personal (safe default); everything else is the user's decision.
+The tool therefore requires an explicit destination declaration for every non-Private vault via the `vaultDestination` config key.  When `split.py` finds a non-P vault lacking a declaration, it writes a guess into `config.json`, then org mode exits with a clear error asking the user to review and confirm the written value; `import.py` refuses the same way if the manifest still carries no destination.  Existing entries, including deliberately blank ones, are never overwritten. Type P always routes personal (safe default); everything else is the user's decision.
+
+**op CLI as a live ACL data source.**  `.1pux` carries no ACL data, but the local `op` CLI (1Password's own CLI, distinct from the export) can be queried live if it's installed and signed in.  `lib/opacl.py` wraps `op vault user list`, `op vault group list`, and `op user list --group` for a given vault, plus `op whoami` to identify the vault owner.  `split.py` uses this, per unclassified vault, before falling back to the name-substring guess:
+
+- No direct members and no groups → the vault is inferred `"owner-only"`.
+- Direct members exist, or a group expands to members, after excluding the owner's own email (from `op whoami`) → the vault is written as `{"destination": "shared", "shareWith": [...]}`, deduped and sorted.
+- Groups are expanded member-by-member via `op user list --group <name>`; if a group's expansion fails, whatever else was resolved is still written, and the console output names the group(s) needing a manual check.
+
+**Fallback chain**, each link silent and non-fatal: `opAccount` not set (op is never consulted — the `op` default account is ambiguous in multi-account setups and could return ACLs for the wrong account) → `op` not installed → per-vault `op` call fails (vault not found, `op` not signed in, transient error) → name-substring guess (`"shared"`/`"private"`/`"personal"` in the name, otherwise `""`).
 
 Three destinations are supported:
 

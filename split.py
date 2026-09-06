@@ -14,11 +14,15 @@ import JSON suitable for import into My vault (no org required).
 
 Every non-skipped vault needs a vaultDestination entry in config.json (shared,
 owner-only, or personal). When a vault is missing one, split.py writes a guess
-into config.json for the user to confirm: "shared" if the vault name contains
-"shared", "personal" if it contains "private" or "personal", otherwise "" (no
-guess). Existing entries, including deliberately blank ones, are never
-overwritten. Org mode still exits non-zero so the user reviews the guesses
-before re-running; personal mode warns and skips the vault instead.
+into config.json for the user to confirm. When the account sets "opAccount",
+it first tries live sharing data via the op CLI (lib/opacl.py): a vault only
+the owner can access becomes "owner-only"; a vault shared with others becomes
+{"destination": "shared", "shareWith": [...emails...]}. Without "opAccount"
+(or when op fails) it falls back to the vault name: "shared" if
+the name contains "shared", "personal" if it contains "private" or "personal",
+otherwise "" (no guess). Existing entries, including deliberately blank ones,
+are never overwritten. Org mode still exits non-zero so the user reviews the
+guesses before re-running; personal mode warns and skips the vault instead.
 """
 
 from __future__ import annotations
@@ -32,6 +36,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from lib import onepux
+from lib import opacl
 from lib import passkey_inventory as pkinv
 
 SSH_KEY_SUPPORTED = True
@@ -89,6 +94,68 @@ def _guess_vault_destination(name: str) -> str:
     if "private" in lower or "personal" in lower:
         return "personal"
     return ""
+
+
+def _op_guess_vault_destination(vault_name: str, op_account: str | None, owner: str | None):
+    """Try to resolve a vaultDestination guess from live op CLI sharing data.
+
+    `owner` is the op account owner's email (from opacl.owner_email), resolved
+    once per account run by the caller; when None the owner cannot be excluded
+    and the label says so.  Returns (value, label) when op succeeds for this
+    vault, where `value` is the string or object to store in vaultDestination
+    and `label` is the console line describing what was found.  Returns None
+    when op is unusable or the per-vault lookup fails, so the caller falls
+    back to _guess_vault_destination.  Returns None immediately when
+    `op_account` is None: without an explicit opAccount config key the op
+    default account is ambiguous in multi-account setups and could resolve
+    ACLs from the wrong 1Password account.
+    """
+    if not op_account:
+        return None
+    result = opacl.vault_members(vault_name, op_account)
+    if result is None:
+        return None
+
+    owner_lower = owner.lower() if owner else None
+    emails = {e for e in result["emails"] if e}
+    if owner_lower:
+        emails = {e for e in emails if e.lower() != owner_lower}
+    share_with = sorted(emails, key=str.lower)
+    failed_groups = result.get("failed_groups") or []
+
+    if share_with:
+        value = {"destination": "shared", "shareWith": share_with}
+        label = f"shared — shareWith: {', '.join(share_with)}"
+    elif not result["groups"]:
+        value = "owner-only"
+        label = "owner-only (only owner has access in 1Password)"
+    else:
+        value = ""
+        label = "(blank)"
+
+    if owner:
+        label += f" — via op account {owner}"
+    else:
+        label += " — op whoami failed; owner not excluded from shareWith"
+    if failed_groups:
+        label += f" — could not expand group(s): {', '.join(failed_groups)}; check manually"
+
+    return value, label
+
+
+def _resolve_unclassified_vault(vault_name: str, op_account: str | None,
+                                owner: str | None) -> tuple:
+    """Resolve a vaultDestination guess for an unclassified vault.
+
+    Tries live op CLI sharing data first; falls back to the name-substring
+    guess when op is unusable or the per-vault lookup fails.  Returns
+    (value_to_write, console_label).
+    """
+    op_guess = _op_guess_vault_destination(vault_name, op_account, owner)
+    if op_guess is not None:
+        return op_guess
+    guess = _guess_vault_destination(vault_name)
+    return guess, (guess if guess else "(blank)")
 
 
 def _write_config(config_path: Path, config: dict) -> None:
@@ -176,6 +243,7 @@ def _process_account(account: dict, work_dir: Path, include_archived: bool,
     skip_vault_types = set(account.get("skipVaultTypes", ["P"]))
     vault_rename = account.get("vaultRename", {})
     vault_destination = account.get("vaultDestination", {})
+    op_account = account.get("opAccount")
 
     files_dir = work_dir / "files"
     export_data, files_map = onepux.parse_export(pux_path, files_dir)
@@ -188,6 +256,9 @@ def _process_account(account: dict, work_dir: Path, include_archived: bool,
     if unclassified:
         lines = []
         added_any = False
+        owner = opacl.owner_email(op_account) if op_account and any(
+            n not in vault_destination for n in unclassified
+        ) else None
         for name in unclassified:
             if name in vault_destination:
                 raw = vault_destination[name]
@@ -199,10 +270,10 @@ def _process_account(account: dict, work_dir: Path, include_archived: bool,
                 else:
                     lines.append(f'  "{name}": needs a value filled in')
             else:
-                guess = _guess_vault_destination(name)
-                vault_destination[name] = guess
+                value, label = _resolve_unclassified_vault(name, op_account, owner)
+                vault_destination[name] = value
                 added_any = True
-                lines.append(f'  "{name}": {guess if guess else "(blank)"}')
+                lines.append(f'  "{name}": {label}')
         account["vaultDestination"] = vault_destination
         if added_any and config is not None and config_path is not None:
             _write_config(config_path, config)
@@ -299,6 +370,7 @@ def _process_account_personal(account: dict, work_dir: Path, include_archived: b
 
     vault_rename = account.get("vaultRename", {})
     vault_destination = account.get("vaultDestination", {})
+    op_account = account.get("opAccount")
 
     files_dir = work_dir / "files"
     export_data, files_map = onepux.parse_export(pux_path, files_dir)
@@ -307,6 +379,9 @@ def _process_account_personal(account: dict, work_dir: Path, include_archived: b
 
     unclassified = _check_vault_destinations_personal(vault_list, vault_rename, vault_destination)
     added_any = False
+    owner = opacl.owner_email(op_account) if op_account and any(
+        n not in vault_destination for n in unclassified
+    ) else None
     for n in unclassified:
         if n in vault_destination:
             raw = vault_destination[n]
@@ -325,10 +400,9 @@ def _process_account_personal(account: dict, work_dir: Path, include_archived: b
                     file=sys.stderr,
                 )
         else:
-            guess = _guess_vault_destination(n)
-            vault_destination[n] = guess
+            value, label = _resolve_unclassified_vault(n, op_account, owner)
+            vault_destination[n] = value
             added_any = True
-            label = guess if guess else "(blank)"
             print(
                 f"  [{account.get('name', '?')}] Warning: vault {n!r} has no vaultDestination"
                 f" in personal mode — skipped (org mode handles it); added to config.json as {label}.",

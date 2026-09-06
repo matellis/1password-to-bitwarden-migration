@@ -19,6 +19,7 @@
       "puxPath": "exports/<team-a-account-uuid>.1pux",
       "bitwardenOrgId": "<team-a-org-uuid>",
       "bitwardenServer": "us",
+      "opAccount": "team",
       "onExisting": "refuse",
       "skipVaultTypes": ["P"],
       "vaultRename": {

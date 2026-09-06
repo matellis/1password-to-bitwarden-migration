@@ -18,7 +18,9 @@ The admin `.1pux` export does not include other users' Private vaults (by 1Passw
 
 ## ACLs and sharing permissions
 
-1Password exports contain no permission data.  After import, collection permissions must be assigned manually in the Bitwarden admin console.  Document who had access to which vaults before export and re-apply after migration.
+The `.1pux` export itself contains no permission data — this is a static-file limitation and does not change.  After import, collection permissions must still be assigned manually in the Bitwarden admin console, since the bw CLI has no way to set them programmatically.
+
+Separately, `split.py` can query *live* sharing data from the local `op` (1Password CLI), if it's installed and signed in, to auto-resolve an unclassified vault's `vaultDestination` (owner-only vs. shared, and who to share with) instead of falling back to a name guess.  This reads current 1Password ACLs directly from the account, not from the export file.  It does not remove the manual step above — Bitwarden collection permissions still have to be set by hand — it only improves the accuracy of the destination classification going in.  If `op` isn't installed, this is silently skipped and the name-substring guess is used, as before.
 
 ## Tags
 

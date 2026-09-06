@@ -269,7 +269,7 @@ def _verify_vault_personal(
     return len(issues) == 0, issues
 
 
-def _op_check(pux_path: Path, account_name: str) -> None:
+def _op_check(pux_path: Path, account_name: str, op_account: str | None = None) -> None:
     import subprocess, shutil, zipfile as _zipfile
     op = shutil.which("op")
     if not op:
@@ -286,9 +286,12 @@ def _op_check(pux_path: Path, account_name: str) -> None:
         vault_name = attrs.get("name", "?")
         expected = len(vault.get("items") or [])
 
+        argv = [op, "item", "list", "--vault", vault_name, "--format", "json"]
+        if op_account:
+            argv += ["--account", op_account]
         try:
             result = subprocess.run(
-                [op, "item", "list", "--vault", vault_name, "--format", "json"],
+                argv,
                 capture_output=True, text=True
             )
             if result.returncode != 0:
@@ -402,7 +405,7 @@ def main() -> None:
         if args.op and not personal:
             pux_path = Path(account.get("puxPath", ""))
             if pux_path.exists():
-                _op_check(pux_path, name)
+                _op_check(pux_path, name, account.get("opAccount"))
 
     print("\nSummary:")
     for acct, vault, passed in results:
