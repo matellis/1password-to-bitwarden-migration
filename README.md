@@ -105,6 +105,7 @@ Every non-Private vault must be explicitly classified.  When `split.py` finds an
 When the account sets `opAccount` and `op` is installed and signed in, `split.py` tries to resolve the vault's real sharing info before falling back to the name-substring guess:
 
 - `op vault user list` and `op vault group list` return the vault's direct members and groups; each group is expanded with `op user list --group` to collect its members' emails.
+- Only grants with viewing permission count as sharing.  1Password's built-in Owners/Administrators groups (and any user entry with only `allow_managing`) are administrative and are ignored, even though they appear on every vault; a family organizer's or team admin's Bitwarden equivalent is org Owner/Admin, not collection access, so their email correctly stays out of `shareWith`.
 - No members and no groups beyond the owner → the guess is written as `"owner-only"`.
 - Members found (after excluding the vault owner's own email, from `op whoami`) → the guess is written as the object form `{"destination": "shared", "shareWith": [...]}` with the resolved, deduped, sorted email list.
 - If a group fails to expand, whatever was resolved from direct members is still written, and the console line names the group(s) that need a manual check.

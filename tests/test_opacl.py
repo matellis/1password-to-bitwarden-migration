@@ -143,6 +143,74 @@ class TestVaultMembers(unittest.TestCase):
 
     @patch("lib.opacl.shutil.which", return_value="/usr/local/bin/op")
     @patch("lib.opacl.subprocess.run")
+    def test_user_without_viewing_excluded(self, mock_run, mock_which):
+        mock_run.side_effect = [
+            _proc(stdout='[{"email": "organizer@example.com", "permissions": ["allow_managing"]}]'),
+            _proc(stdout="[]"),
+        ]
+        result = opacl.vault_members("Engineering", None)
+        self.assertEqual(result["emails"], [])
+
+    @patch("lib.opacl.shutil.which", return_value="/usr/local/bin/op")
+    @patch("lib.opacl.subprocess.run")
+    def test_user_with_viewing_included(self, mock_run, mock_which):
+        mock_run.side_effect = [
+            _proc(stdout='[{"email": "a@example.com", "permissions": ["allow_viewing", "allow_editing"]}]'),
+            _proc(stdout="[]"),
+        ]
+        result = opacl.vault_members("Engineering", None)
+        self.assertEqual(result["emails"], ["a@example.com"])
+
+    @patch("lib.opacl.shutil.which", return_value="/usr/local/bin/op")
+    @patch("lib.opacl.subprocess.run")
+    def test_user_missing_permissions_key_included(self, mock_run, mock_which):
+        mock_run.side_effect = [
+            _proc(stdout='[{"email": "a@example.com"}]'),
+            _proc(stdout="[]"),
+        ]
+        result = opacl.vault_members("Engineering", None)
+        self.assertEqual(result["emails"], ["a@example.com"])
+
+    @patch("lib.opacl.shutil.which", return_value="/usr/local/bin/op")
+    @patch("lib.opacl.subprocess.run")
+    def test_managing_only_group_skipped_not_expanded(self, mock_run, mock_which):
+        mock_run.side_effect = [
+            _proc(stdout="[]"),
+            _proc(stdout='[{"name": "Owners", "permissions": ["allow_managing"]}]'),
+        ]
+        result = opacl.vault_members("Engineering", None)
+        self.assertEqual(result["groups"], [])
+        self.assertEqual(result["emails"], [])
+        self.assertEqual(result["failed_groups"], [])
+        # Only the two vault-level calls happen; the group is never expanded.
+        self.assertEqual(mock_run.call_count, 2)
+
+    @patch("lib.opacl.shutil.which", return_value="/usr/local/bin/op")
+    @patch("lib.opacl.subprocess.run")
+    def test_group_with_viewing_expanded(self, mock_run, mock_which):
+        mock_run.side_effect = [
+            _proc(stdout="[]"),
+            _proc(stdout='[{"name": "Engineers", "permissions": ["allow_viewing"]}]'),
+            _proc(stdout='[{"email": "c@example.com"}]'),
+        ]
+        result = opacl.vault_members("Engineering", None)
+        self.assertEqual(result["groups"], ["Engineers"])
+        self.assertEqual(result["emails"], ["c@example.com"])
+
+    @patch("lib.opacl.shutil.which", return_value="/usr/local/bin/op")
+    @patch("lib.opacl.subprocess.run")
+    def test_mixed_vault_managing_group_and_viewing_user(self, mock_run, mock_which):
+        mock_run.side_effect = [
+            _proc(stdout='[{"email": "a@example.com", "permissions": ["allow_viewing"]}]'),
+            _proc(stdout='[{"name": "Owners", "permissions": ["allow_managing"]}]'),
+        ]
+        result = opacl.vault_members("Engineering", None)
+        self.assertEqual(result["emails"], ["a@example.com"])
+        self.assertEqual(result["groups"], [])
+        self.assertEqual(result["failed_groups"], [])
+
+    @patch("lib.opacl.shutil.which", return_value="/usr/local/bin/op")
+    @patch("lib.opacl.subprocess.run")
     def test_account_flag_propagates_to_all_calls(self, mock_run, mock_which):
         mock_run.side_effect = [
             _proc(stdout='[{"email": "a@example.com"}]'),

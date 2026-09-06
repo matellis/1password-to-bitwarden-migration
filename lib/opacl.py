@@ -9,11 +9,18 @@ op commands and the JSON fields read from each, confirmed via `op --help`:
   op whoami --format json [--account <acct>]
     -> object; reads "email"
   op vault user list <vault> --format json [--account <acct>]
-    -> list of objects; reads "email" from each
+    -> list of objects; reads "email" and "permissions" from each
   op vault group list <vault> --format json [--account <acct>]
-    -> list of objects; reads "name" from each
+    -> list of objects; reads "name" and "permissions" from each
   op user list --group <name> --format json [--account <acct>]
     -> list of objects; reads "email" from each
+
+Only grants that include "allow_viewing" in "permissions" count as content
+sharing. 1Password's built-in Owners/Administrators groups (and any user
+entry granted only "allow_managing") appear on every vault for
+administrative purposes without granting read access to its contents, and
+are excluded from the emails/groups returned here. An entry with no
+"permissions" list at all is included, since its access can't be judged.
 """
 
 from __future__ import annotations
@@ -55,6 +62,13 @@ def owner_email(op_account: str | None) -> str | None:
     return email if isinstance(email, str) else None
 
 
+def _has_viewing_access(entry: dict) -> bool:
+    permissions = entry.get("permissions")
+    if not isinstance(permissions, list):
+        return True
+    return "allow_viewing" in permissions
+
+
 def vault_members(vault_name: str, op_account: str | None) -> dict | None:
     op = _op_path()
     if not op:
@@ -69,6 +83,7 @@ def vault_members(vault_name: str, op_account: str | None) -> dict | None:
     emails = [
         u.get("email") for u in users
         if isinstance(u, dict) and isinstance(u.get("email"), str)
+        and _has_viewing_access(u)
     ]
 
     groups_data = _run_json(
@@ -79,6 +94,7 @@ def vault_members(vault_name: str, op_account: str | None) -> dict | None:
         groups = [
             g.get("name") for g in groups_data
             if isinstance(g, dict) and isinstance(g.get("name"), str)
+            and _has_viewing_access(g)
         ]
 
     failed_groups = []

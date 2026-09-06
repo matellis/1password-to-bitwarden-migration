@@ -62,7 +62,8 @@ The tool therefore requires an explicit destination declaration for every non-Pr
 
 **op CLI as a live ACL data source.**  `.1pux` carries no ACL data, but the local `op` CLI (1Password's own CLI, distinct from the export) can be queried live if it's installed and signed in.  `lib/opacl.py` wraps `op vault user list`, `op vault group list`, and `op user list --group` for a given vault, plus `op whoami` to identify the vault owner.  `split.py` uses this, per unclassified vault, before falling back to the name-substring guess:
 
-- No direct members and no groups → the vault is inferred `"owner-only"`.
+- Only grants carrying viewing permission count as sharing; entries with only `allow_managing` (1Password's built-in Owners/Administrators groups, or any user granted just administrative access) are ignored, since a vault organizer manages a vault without necessarily reading its contents — the Bitwarden equivalent of that role is org Owner/Admin, not collection access, so it correctly does not appear in `shareWith`.
+- No direct members and no groups with viewing access → the vault is inferred `"owner-only"`.
 - Direct members exist, or a group expands to members, after excluding the owner's own email (from `op whoami`) → the vault is written as `{"destination": "shared", "shareWith": [...]}`, deduped and sorted.
 - Groups are expanded member-by-member via `op user list --group <name>`; if a group's expansion fails, whatever else was resolved is still written, and the console output names the group(s) needing a manual check.
 
