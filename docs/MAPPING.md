@@ -93,3 +93,16 @@ Section field name format: `<Section Title>: <Field Title>` (or just the field t
 | All other fields | custom fields |
 
 Falls back to SecureNote + hidden fields when `bw` does not support type 5.
+
+## Oversized field / notes enforcement
+
+Bitwarden rejects a whole vault import if any custom field value exceeds 5,000 characters (encrypted) or notes exceed 10,000 characters. Every custom field, including "other `loginFields`" above, is enforced against a 4,900-char safe margin before being written:
+
+| Condition | Result |
+|---|---|
+| Field value ≤ 4,900 chars | unchanged |
+| Field value > 4,900 chars, and relocating it keeps notes ≤ 9,900 chars | full value appended to `notes` as `<field name>:\n<value>`; field value replaced with a pointer string |
+| Field value > 4,900 chars, but notes have no room left | field value truncated to 4,900 chars + `…[truncated from N characters: exceeded Bitwarden limits]` |
+| Final assembled `notes` > 9,900 chars | truncated to 9,900 chars + `…[truncated: exceeded Bitwarden's 10000-character notes limit]` |
+
+`split.py` reports one warning line per relocated/truncated field to stderr after conversion.

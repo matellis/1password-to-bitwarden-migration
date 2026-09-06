@@ -53,6 +53,12 @@ This tool targets 1pux format version 3.  Exports from older 1Password versions 
 
 The Bitwarden free tier limits attachment sizes.  Organization plans have higher limits.  Very large files (>500 MB per attachment for most plans) may fail to upload.  Check your Bitwarden plan limits before migrating accounts with large document items.
 
+## Bitwarden field / notes size limits
+
+Bitwarden's server rejects any custom field value over 5,000 characters (encrypted) and any notes value over 10,000 characters — `bw import` aborts the *entire* vault import if one item trips this, not just that item.  Old 1Password items can carry raw web-form dumps (terms-of-service text, etc.) as undesignated login fields, some tens of thousands of characters long.
+
+`lib/onepux.py` enforces safe margins under those limits (4,900 chars per field, 9,900 for notes).  A field that exceeds 4,900 chars has its full value moved into `notes` (with a pointer left in the field itself) if there's room; if notes are already full, the field is truncated in place with a marker noting the original length.  Final assembled notes over 9,900 chars are truncated with a marker.  `split.py` prints one warning line per affected field to stderr so you know which items to spot-check after import.
+
 ## Collection name collisions
 
 If a Bitwarden collection with the same name already exists in the target org, `bw import` will merge items into it.  The `onExisting` policy in this tool (`refuse` by default) prevents unintended merges, but it operates on name comparison — not on collection UUID.  Use `vaultRename` in config to avoid name collisions.

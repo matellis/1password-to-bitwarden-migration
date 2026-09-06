@@ -329,6 +329,9 @@ def _process_account(account: dict, work_dir: Path, include_archived: bool,
             marked += _mark_items(result.bulk_items, inventory)
             marked += _mark_items(att_all, inventory)
 
+        for entry in result.oversized_fields:
+            print(f"  [{account.get('name', '?')}] Warning: oversized field — {entry}", file=sys.stderr)
+
         bulk_path = work_dir / f"{slug}.json"
         import_doc = onepux.make_import_doc(org_id, collection, result.bulk_items)
         _write_secure(bulk_path, import_doc)
@@ -484,6 +487,9 @@ def _process_account_personal(account: dict, work_dir: Path, include_archived: b
             att_all = [e["item"] for e in result.attachment_items]
             marked += _mark_items(result.bulk_items, inventory)
             marked += _mark_items(att_all, inventory)
+
+        for entry in result.oversized_fields:
+            print(f"  [{account.get('name', '?')}] Warning: oversized field — {entry}", file=sys.stderr)
 
         bulk_path = work_dir / f"{slug}.json"
         _write_secure(bulk_path, {

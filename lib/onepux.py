@@ -66,12 +66,17 @@ _IDENTITY_FIELD_ID_MAP = {
 }
 
 
+_FIELD_VALUE_LIMIT = 4900
+_NOTES_LIMIT = 9900
+
+
 @dataclass
 class ConversionResult:
     bulk_items: list[dict] = field(default_factory=list)
     attachment_items: list[dict] = field(default_factory=list)
     archived_count: int = 0
     dupe_count: int = 0
+    oversized_fields: list[str] = field(default_factory=list)
 
 
 def parse_export(pux_path: Path, extract_to: Path) -> tuple[dict, dict[str, Path]]:
@@ -145,9 +150,10 @@ def convert_vault_items(
             result.archived_count += 1
             continue
 
-        bw_item, attach_paths = _convert_item(
+        bw_item, attach_paths, oversized = _convert_item(
             raw_item, org_id, collection_id, files_map, ssh_key_supported
         )
+        result.oversized_fields.extend(oversized)
 
         fp = _item_fingerprint(bw_item)
         if fp in seen_fingerprints:
@@ -181,7 +187,7 @@ def _convert_item(
     collection_id: str,
     files_map: dict[str, Path],
     ssh_key_supported: bool,
-) -> tuple[dict, list[Path]]:
+) -> tuple[dict, list[Path], list[str]]:
     overview = raw.get("overview") or {}
     details = raw.get("details") or {}
     cat = str(raw.get("categoryUuid", "002"))
@@ -214,15 +220,16 @@ def _convert_item(
     }
 
     attach_paths: list[Path] = []
+    oversized_fields: list[str] = []
 
     if bw_type == 1:
-        _fill_login(bw_item, overview, details, notes_parts)
+        _fill_login(bw_item, overview, details, notes_parts, oversized_fields)
     elif bw_type == 3:
-        _fill_card(bw_item, details, notes_parts)
+        _fill_card(bw_item, details, notes_parts, oversized_fields)
     elif bw_type == 4:
-        _fill_identity(bw_item, details, notes_parts)
+        _fill_identity(bw_item, details, notes_parts, oversized_fields)
     elif bw_type == 5:
-        _fill_ssh_key(bw_item, details, notes_parts)
+        _fill_ssh_key(bw_item, details, notes_parts, oversized_fields)
     else:
         bw_item["secureNote"] = {"type": 0}
 
@@ -235,15 +242,22 @@ def _convert_item(
     ref_paths = _collect_reference_attachments(details, files_map, bw_item)
     attach_paths.extend(ref_paths)
 
-    bw_item["notes"] = "\n".join(notes_parts) if notes_parts else None
-    return bw_item, attach_paths
+    notes = "\n".join(notes_parts) if notes_parts else None
+    if notes and len(notes) > _NOTES_LIMIT:
+        notes = notes[:_NOTES_LIMIT] + "…[truncated: exceeded Bitwarden's 10000-character notes limit]"
+    bw_item["notes"] = notes
+    return bw_item, attach_paths, oversized_fields
 
 
-def _fill_login(bw_item: dict, overview: dict, details: dict, notes_parts: list[str]) -> None:
+def _fill_login(
+    bw_item: dict, overview: dict, details: dict, notes_parts: list[str],
+    oversized_fields: list[str],
+) -> None:
     username = ""
     password = ""
     totp = ""
     extra_login_fields: list[dict] = []
+    item_name = bw_item["name"]
 
     for lf in details.get("loginFields") or []:
         designation = lf.get("designation") or ""
@@ -254,11 +268,12 @@ def _fill_login(bw_item: dict, overview: dict, details: dict, notes_parts: list[
             password = value
         else:
             if value:
-                extra_login_fields.append({
-                    "name": lf.get("name") or lf.get("id") or "field",
-                    "value": value,
-                    "type": 0,
-                })
+                bw_field = _make_bw_field(
+                    lf.get("name") or lf.get("id") or "field", value, "string",
+                    notes_parts, item_name, oversized_fields,
+                )
+                if bw_field:
+                    extra_login_fields.append(bw_field)
 
     for section in details.get("sections") or []:
         section_title = section.get("title") or ""
@@ -270,7 +285,7 @@ def _fill_login(bw_item: dict, overview: dict, details: dict, notes_parts: list[
                 totp = str(fval) if fval is not None else ""
                 continue
             field_name = _field_display_name(section_title, f.get("title") or "")
-            bw_field = _make_bw_field(field_name, fval, ftype)
+            bw_field = _make_bw_field(field_name, fval, ftype, notes_parts, item_name, oversized_fields)
             if bw_field:
                 bw_item["fields"].append(bw_field)
 
@@ -288,7 +303,9 @@ def _fill_login(bw_item: dict, overview: dict, details: dict, notes_parts: list[
     }
 
 
-def _fill_card(bw_item: dict, details: dict, notes_parts: list[str]) -> None:
+def _fill_card(
+    bw_item: dict, details: dict, notes_parts: list[str], oversized_fields: list[str],
+) -> None:
     card: dict[str, Any] = {
         "cardholderName": None,
         "brand": None,
@@ -297,6 +314,7 @@ def _fill_card(bw_item: dict, details: dict, notes_parts: list[str]) -> None:
         "expYear": None,
         "code": None,
     }
+    item_name = bw_item["name"]
 
     for section in details.get("sections") or []:
         section_title = section.get("title") or ""
@@ -321,14 +339,16 @@ def _fill_card(bw_item: dict, details: dict, notes_parts: list[str]) -> None:
                 card["expMonth"] = str(ym % 100)
             elif fval is not None:
                 field_name = _field_display_name(section_title, f.get("title") or "")
-                bw_field = _make_bw_field(field_name, fval, ftype)
+                bw_field = _make_bw_field(field_name, fval, ftype, notes_parts, item_name, oversized_fields)
                 if bw_field:
                     bw_item["fields"].append(bw_field)
 
     bw_item["card"] = card
 
 
-def _fill_identity(bw_item: dict, details: dict, notes_parts: list[str]) -> None:
+def _fill_identity(
+    bw_item: dict, details: dict, notes_parts: list[str], oversized_fields: list[str],
+) -> None:
     identity: dict[str, Any] = {
         "title": None, "firstName": None, "middleName": None, "lastName": None,
         "address1": None, "address2": None, "address3": None,
@@ -336,6 +356,7 @@ def _fill_identity(bw_item: dict, details: dict, notes_parts: list[str]) -> None
         "company": None, "email": None, "phone": None, "ssn": None,
         "username": None, "passportNumber": None, "licenseNumber": None,
     }
+    item_name = bw_item["name"]
 
     for section in details.get("sections") or []:
         section_title = section.get("title") or ""
@@ -355,17 +376,20 @@ def _fill_identity(bw_item: dict, details: dict, notes_parts: list[str]) -> None
                 _unpack_address(identity, fval)
             elif fval is not None:
                 field_name = _field_display_name(section_title, f.get("title") or "")
-                bw_field = _make_bw_field(field_name, fval, ftype)
+                bw_field = _make_bw_field(field_name, fval, ftype, notes_parts, item_name, oversized_fields)
                 if bw_field:
                     bw_item["fields"].append(bw_field)
 
     bw_item["identity"] = identity
 
 
-def _fill_ssh_key(bw_item: dict, details: dict, notes_parts: list[str]) -> None:
+def _fill_ssh_key(
+    bw_item: dict, details: dict, notes_parts: list[str], oversized_fields: list[str],
+) -> None:
     private_key = ""
     public_key = ""
     fingerprint = ""
+    item_name = bw_item["name"]
 
     for section in details.get("sections") or []:
         for f in section.get("fields") or []:
@@ -379,7 +403,9 @@ def _fill_ssh_key(bw_item: dict, details: dict, notes_parts: list[str]) -> None:
             elif "fingerprint" in field_id:
                 fingerprint = val
             elif val:
-                bw_field = _make_bw_field(f.get("title") or field_id, fval, ftype)
+                bw_field = _make_bw_field(
+                    f.get("title") or field_id, fval, ftype, notes_parts, item_name, oversized_fields,
+                )
                 if bw_field:
                     bw_item["fields"].append(bw_field)
 
@@ -428,28 +454,37 @@ def _extract_typed_value(value_dict: Any) -> tuple[str, Any]:
     return (key, value_dict[key])
 
 
-def _make_bw_field(name: str, value: Any, ftype: str) -> dict | None:
+def _make_bw_field(
+    name: str,
+    value: Any,
+    ftype: str,
+    notes_parts: list[str],
+    item_name: str,
+    oversized_fields: list[str],
+) -> dict | None:
     if value is None:
         return None
-    if ftype == "concealed":
-        return {"name": name, "value": str(value), "type": 1}
-    if ftype == "totp":
-        return {"name": name, "value": str(value), "type": 1}
-    if ftype == "date":
+    if ftype == "reference":
+        return None
+
+    if ftype in ("concealed", "totp"):
+        display = str(value)
+        type_code = 1
+    elif ftype == "date":
         try:
             dt = datetime.datetime.fromtimestamp(int(value), tz=datetime.timezone.utc)
             display = dt.strftime("%Y-%m-%d")
         except (ValueError, OSError):
             display = str(value)
-        return {"name": name, "value": display, "type": 0}
-    if ftype == "monthYear":
+        type_code = 0
+    elif ftype == "monthYear":
         try:
             ym = int(value)
             display = f"{ym % 100:02d}/{ym // 100}"
         except (ValueError, TypeError):
             display = str(value)
-        return {"name": name, "value": display, "type": 0}
-    if ftype == "address":
+        type_code = 0
+    elif ftype == "address":
         if isinstance(value, dict):
             parts = [
                 value.get("street", ""), value.get("city", ""),
@@ -459,10 +494,35 @@ def _make_bw_field(name: str, value: Any, ftype: str) -> dict | None:
             display = ", ".join(p for p in parts if p)
         else:
             display = str(value)
-        return {"name": name, "value": display, "type": 0}
-    if ftype == "reference":
-        return None
-    return {"name": name, "value": str(value), "type": 0}
+        type_code = 0
+    else:
+        display = str(value)
+        type_code = 0
+
+    display = _enforce_field_limit(name, display, notes_parts, item_name, oversized_fields)
+    return {"name": name, "value": display, "type": type_code}
+
+
+def _enforce_field_limit(
+    name: str,
+    value: str,
+    notes_parts: list[str],
+    item_name: str,
+    oversized_fields: list[str],
+) -> str:
+    if len(value) <= _FIELD_VALUE_LIMIT:
+        return value
+
+    orig_len = len(value)
+    candidate = f"{name}:\n{value}"
+    prospective_notes = "\n".join(notes_parts + [candidate])
+    if len(prospective_notes) <= _NOTES_LIMIT:
+        notes_parts.append(candidate)
+        oversized_fields.append(f"{item_name}: {name} ({orig_len} chars, moved to notes)")
+        return "[full value moved to notes: exceeded Bitwarden's 5000-character field limit]"
+
+    oversized_fields.append(f"{item_name}: {name} ({orig_len} chars, truncated)")
+    return value[:_FIELD_VALUE_LIMIT] + f"…[truncated from {orig_len} characters: exceeded Bitwarden limits]"
 
 
 def _field_display_name(section_title: str, field_title: str) -> str:
