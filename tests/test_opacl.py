@@ -60,6 +60,17 @@ class TestOwnerEmail(unittest.TestCase):
 
     @patch("lib.opacl.shutil.which", return_value="/usr/local/bin/op")
     @patch("lib.opacl.subprocess.run")
+    def test_falls_back_to_user_get_me(self, mock_run, mock_which):
+        mock_run.side_effect = [
+            _proc(returncode=1, stderr="account is not signed in"),
+            _proc(stdout='{"email": "owner@example.com"}'),
+        ]
+        self.assertEqual(opacl.owner_email(None), "owner@example.com")
+        second_call = mock_run.call_args_list[1][0][0]
+        self.assertEqual(second_call[1:4], ["user", "get", "--me"])
+
+    @patch("lib.opacl.shutil.which", return_value="/usr/local/bin/op")
+    @patch("lib.opacl.subprocess.run")
     def test_account_flag_included_when_set(self, mock_run, mock_which):
         mock_run.return_value = _proc(stdout='{"email": "a@example.com"}')
         opacl.owner_email("team")

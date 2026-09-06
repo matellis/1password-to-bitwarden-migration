@@ -8,6 +8,10 @@ when op is missing or a lookup fails, so callers can fall back silently.
 op commands and the JSON fields read from each, confirmed via `op --help`:
   op whoami --format json [--account <acct>]
     -> object; reads "email"
+  op user get --me --format json [--account <acct>]
+    -> object; reads "email"  (fallback: whoami reports on CLI signin
+    sessions and fails when authentication goes through desktop-app
+    integration, while data commands authorize via the app)
   op vault user list <vault> --format json [--account <acct>]
     -> list of objects; reads "email" and "permissions" from each
   op vault group list <vault> --format json [--account <acct>]
@@ -55,11 +59,17 @@ def owner_email(op_account: str | None) -> str | None:
     op = _op_path()
     if not op:
         return None
-    data = _run_json([op, "whoami", "--format", "json"] + _account_flag(op_account))
-    if not isinstance(data, dict):
-        return None
-    email = data.get("email")
-    return email if isinstance(email, str) else None
+    account_flag = _account_flag(op_account)
+    for args in (
+        [op, "whoami", "--format", "json"],
+        [op, "user", "get", "--me", "--format", "json"],
+    ):
+        data = _run_json(args + account_flag)
+        if isinstance(data, dict):
+            email = data.get("email")
+            if isinstance(email, str):
+                return email
+    return None
 
 
 def _has_viewing_access(entry: dict) -> bool:
