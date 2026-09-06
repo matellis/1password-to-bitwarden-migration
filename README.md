@@ -70,18 +70,20 @@ Save exports to the `exports/` directory (gitignored).
 cp config.example.json config.json
 ```
 
-Fill in the org entries:
-- `puxPath` — path to each `.1pux` file
-- `bitwardenOrgId` — Bitwarden org UUID for that account
-- `bitwardenServer` — which Bitwarden instance this account lives in (see below)
-- `onExisting` — what to do if a collection already has items (`refuse`, `skip`, `allow`)
+You supply account-level values by hand (where to find each one is listed below).  You do **not** fill in `vaultDestination` yourself — run `split.py --account <name>` and it writes one entry per vault for you to review (real sharing data when `opAccount` is set and `op` works, name-based guesses otherwise).  Your only job on `vaultDestination` is to confirm or correct what split.py wrote, then re-run.
+
+Org entries:
+- `puxPath` — path to the `.1pux` from step 2, e.g. `exports/1PasswordExport-….1pux`
+- `bitwardenOrgId` — the org's UUID from step 1: Bitwarden web vault → Admin Console → your org → **Settings → My organization**, or from the URL when the org is open
+- `bitwardenServer` — which Bitwarden instance this account lives in (see below).  Region is chosen at org creation and cannot change later — decide before creating the org
+- `onExisting` — what to do if a collection already has items (`refuse`, `skip`, `allow`); use `refuse` for the first run
 - `skipVaultTypes` — vault types to ignore (default `["P"]` skips Private vaults)
 - `vaultRename` — optional map of `{"1Password vault name": "Bitwarden collection name"}`
-- `vaultDestination` — **required for every non-Private vault** (see below)
-- `opAccount` — the `op account list` shorthand for the 1Password account this entry's export came from.  **Required** for the `op`-based auto-resolution described below (without it, `op` is never consulted — in multi-account setups the `op` default account is ambiguous and could return sharing data for the wrong account); also used by `verify.py --op`.
+- `opAccount` — the shorthand from `op account list` (e.g. `my` for `my.1password.com`) for the 1Password account this entry's export came from.  **Required** for the `op`-based auto-resolution described below (without it, `op` is never consulted — in multi-account setups the `op` default account is ambiguous and could return sharing data for the wrong account); also used by `verify.py --op`.
+- `vaultDestination` — filled in by split.py, reviewed by you (see below)
 
-Fill in the personal entries (`"mode": "personal"`):
-- `bitwardenEmail` — **required**: the Bitwarden account email this vault will land in
+Personal entries (`"mode": "personal"`) need the same account-level values minus `bitwardenOrgId`, plus:
+- `bitwardenEmail` — **required**: the email of the Bitwarden account this vault lands in (you created these accounts in step 1's personal-account setup)
 - `vaultRename` — use this to avoid three colliding "Private" folders, e.g. `{"Private": "Private (Family)"}`
 
 **`bitwardenServer` values**
