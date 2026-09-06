@@ -41,7 +41,7 @@ class TestSharedMembersNotice(unittest.TestCase):
         out = buf.getvalue()
         self.assertIn("Finances", out)
         self.assertIn("POST-IMPORT ACTION REQUIRED", out)
-        self.assertIn("restrict this collection to the owner", out)
+        self.assertIn("Regular members cannot see a new collection", out)
 
     def _run_main_loop_notice_check(self, vault_entry: dict, status: str) -> str:
         buf = io.StringIO()
@@ -94,7 +94,7 @@ class TestSharedMembersNotice(unittest.TestCase):
             "shareWith": ["a@example.com"],
         }
         out = self._run_main_loop_notice_check(vault_entry, "ok")
-        self.assertIn("restrict this collection to the owner", out)
+        self.assertIn("Regular members cannot see a new collection", out)
         self.assertNotIn("grant access to this collection", out)
 
 

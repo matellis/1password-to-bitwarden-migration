@@ -499,10 +499,12 @@ def _import_vault_personal(
 
 def _print_owner_only_notice(vault_entry: dict) -> None:
     print(
-        f"  [{vault_entry['vaultName']}] POST-IMPORT ACTION REQUIRED:"
-        f" restrict this collection to the owner in the Bitwarden web vault"
-        f" (Admin Console > Organizations > Collections > Manage access)."
-        f" The bw CLI does not support setting collection member permissions."
+        f"  [{vault_entry['vaultName']}] Owner-only collection imported."
+        f" Regular members cannot see a new collection unless granted access,"
+        f" but org Owners/Admins can see all collections by default (org setting)"
+        f" — verify in the Bitwarden web vault (Admin Console > Organizations >"
+        f" Collections > Manage access)."
+        f" The bw CLI cannot read or set collection member permissions."
     )
 
 

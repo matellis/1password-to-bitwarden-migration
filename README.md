@@ -118,7 +118,7 @@ Signing in: enable **Settings → Developer → Integrate with 1Password CLI** i
 | Destination | Meaning |
 | --- | --- |
 | `"shared"` | Imported as a normal org collection — all org members may be granted access. |
-| `"owner-only"` | Imported as an org collection intended for the owner only.  The bw CLI cannot set member permissions; after import you must restrict the collection in the Bitwarden web vault (Admin Console > Organizations > Collections > Manage access).  The tool prints a post-import reminder listing the collections to restrict. |
+| `"owner-only"` | Imported as an org collection intended for the owner only.  Regular members cannot see a new collection unless granted access — but org Owners/Admins can see all collections by default (org setting).  The bw CLI cannot read or set member permissions, so after import the tool prints a reminder to verify access in the Bitwarden web vault (Admin Console > Organizations > Collections > Manage access). |
 | `"personal"` | Routed to personal-mode output — same handling as the built-in Private vault.  This vault is skipped in the org-mode run and should be processed by a personal-mode entry. |
 
 `"shared"` also accepts an object form when you want to name specific members to grant access to, since the bw CLI cannot set collection member permissions itself:
