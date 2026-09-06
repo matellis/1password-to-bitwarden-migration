@@ -161,7 +161,10 @@ class TestCollectionIdResolution(unittest.TestCase):
             bulk_doc = {
                 "encrypted": False,
                 "collections": [{"id": placeholder_id, "name": vault_name}],
-                "items": [],
+                "items": [{
+                    "type": 1, "name": "Work SSO Portal",
+                    "login": {"username": "alice@example.com", "password": "s3cr3t", "totp": None, "uris": []},
+                }],
             }
             (work_dir / "Employee.json").write_text(json.dumps(bulk_doc))
 
@@ -263,6 +266,70 @@ class TestAttachmentCountVerification(unittest.TestCase):
         # Fixed behavior: pass the real expected count → no diff.
         diffs_fixed = _compare_item(src_item, live_item, expected_attach_count=1)
         self.assertFalse(any("attachment count" in d for d in diffs_fixed))
+
+
+class TestEmptyVaultImport(unittest.TestCase):
+    """A vault whose bulk file has zero items must not call bw import (which
+    fails with 'Nothing was imported'); it is marked done in the ledger."""
+
+    def test_empty_bulk_and_no_attachments_marked_done(self):
+        vault_name = "Managed Keys"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            work_dir = Path(tmpdir)
+            (work_dir / "managed-keys.json").write_text(json.dumps({
+                "encrypted": False, "collections": [], "items": [],
+            }))
+
+            account = {"bitwardenOrgId": "org-1", "onExisting": "refuse", "name": "test"}
+            vault_entry = {
+                "vaultName": vault_name,
+                "slug": "managed-keys",
+                "collectionId": "placeholder",
+                "counts": {"bulk": 0, "attachment": 0},
+            }
+            ledger: dict = {"imported": {}, "failures": {}}
+
+            with patch("lib.bwcli.list_org_collections", return_value=[]), \
+                 patch("lib.bwcli.bulk_import") as mock_bulk:
+                result = _import_mod._import_vault(
+                    account, vault_entry, work_dir, ledger, yes=True, force=False
+                )
+
+            self.assertEqual(result.get("status"), "ok")
+            mock_bulk.assert_not_called()
+            entry = ledger["imported"][vault_name]
+            self.assertEqual(entry["importedCount"], 0)
+            self.assertIsNone(entry["collectionId"])
+
+    def test_empty_bulk_with_attachments_still_imports(self):
+        vault_name = "Docs"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            work_dir = Path(tmpdir)
+            (work_dir / "docs.json").write_text(json.dumps({
+                "encrypted": False, "collections": [], "items": [],
+            }))
+            (work_dir / "docs.attachments.json").write_text(json.dumps({
+                "organizationId": "org-1",
+                "items": [],
+            }))
+
+            account = {"bitwardenOrgId": "org-1", "onExisting": "refuse", "name": "test"}
+            vault_entry = {
+                "vaultName": vault_name,
+                "slug": "docs",
+                "collectionId": "placeholder",
+                "counts": {"bulk": 0, "attachment": 0},
+            }
+            ledger: dict = {"imported": {}, "failures": {}}
+
+            with patch("lib.bwcli.list_org_collections", return_value=[]), \
+                 patch("lib.bwcli.bulk_import") as mock_bulk:
+                result = _import_mod._import_vault(
+                    account, vault_entry, work_dir, ledger, yes=True, force=False
+                )
+
+            self.assertEqual(result.get("status"), "ok")
+            mock_bulk.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -165,6 +165,20 @@ def _import_vault(
         print(f"  [{vault_name}] No bulk file found at {bulk_path}, skipping.")
         return {"status": "no_bulk_file"}
 
+    attach_path = work_dir / f"{slug}.attachments.json"
+    attach_doc = _load_json(attach_path) if attach_path.exists() else {}
+    if not _load_json(bulk_path).get("items") and not attach_doc.get("items"):
+        print(f"  [{vault_name}] No active items to import (all archived or empty) — marked done.")
+        ledger["imported"][vault_name] = {
+            "timestamp": _now_iso(),
+            "importedCount": 0,
+            "skippedCount": 0,
+            "attachmentItems": 0,
+            "failures": 0,
+            "collectionId": None,
+        }
+        return {"status": "ok"}
+
     imported_count = 0
     skipped_count = 0
 
@@ -221,12 +235,10 @@ def _import_vault(
         ledger["failures"][vault_name] = [{"error": msg}]
         return {"status": "failed"}
 
-    attach_path = work_dir / f"{slug}.attachments.json"
     attach_results: list[dict] = []
     attachment_failures: list[dict] = []
 
     if attach_path.exists():
-        attach_doc = _load_json(attach_path)
         attach_org_id = attach_doc.get("organizationId", org_id)
         attach_items = attach_doc.get("items", [])
 
