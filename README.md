@@ -105,6 +105,16 @@ Every non-Private vault must be explicitly classified.  When `split.py` finds an
 | `"owner-only"` | Imported as an org collection intended for the owner only.  The bw CLI cannot set member permissions; after import you must restrict the collection in the Bitwarden web vault (Admin Console > Organizations > Collections > Manage access).  The tool prints a post-import reminder listing the collections to restrict. |
 | `"personal"` | Routed to personal-mode output — same handling as the built-in Private vault.  This vault is skipped in the org-mode run and should be processed by a personal-mode entry. |
 
+`"shared"` also accepts an object form when you want to name specific members to grant access to, since the bw CLI cannot set collection member permissions itself:
+
+```json
+"vaultDestination": {
+  "Kids Accounts": { "destination": "shared", "shareWith": ["kid@example.com", "mom@example.com"] }
+}
+```
+
+`import.py` carries that list through to the manifest and prints a post-import checklist naming the collection and the members to grant access to in the Bitwarden web vault.  Plain `"shared"` with no `shareWith` stays silent, same as today.
+
 **`bitwardenEmail` — per-account identity guard**
 
 Personal-mode entries each land in a separate Bitwarden account.  `bitwardenEmail` is required for every `mode: personal` entry and is optional (but enforced when present) for org entries.  When the CLI is logged in as a different account, the scripts log out and re-authenticate to the correct account automatically.

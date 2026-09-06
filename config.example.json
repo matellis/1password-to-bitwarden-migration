@@ -10,7 +10,8 @@
       "vaultRename": {},
       "vaultDestination": {
         "Shared": "shared",
-        "Finances": "owner-only"
+        "Finances": "owner-only",
+        "Kids Accounts": { "destination": "shared", "shareWith": ["kid@example.com", "mom@example.com"] }
       }
     },
     {

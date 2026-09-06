@@ -295,6 +295,244 @@ class TestPersonalModeUnclassifiedWarning(unittest.TestCase):
         self.assertEqual(result, [])
 
 
+class TestNormalizeDestination(unittest.TestCase):
+    """Unit tests for the vaultDestination string/object normalizer."""
+
+    def test_valid_string_forms(self):
+        for dest in ("shared", "owner-only", "personal"):
+            self.assertEqual(split_mod._normalize_destination(dest), (dest, []))
+
+    def test_invalid_string_is_none(self):
+        self.assertEqual(split_mod._normalize_destination("sharedd"), (None, []))
+        self.assertEqual(split_mod._normalize_destination(""), (None, []))
+
+    def test_absent_value_is_none(self):
+        self.assertEqual(split_mod._normalize_destination(None), (None, []))
+
+    def test_valid_object_form(self):
+        value = {"destination": "shared", "shareWith": ["kid@example.com", "mom@example.com"]}
+        self.assertEqual(
+            split_mod._normalize_destination(value),
+            ("shared", ["kid@example.com", "mom@example.com"]),
+        )
+
+    def test_object_form_without_share_with(self):
+        self.assertEqual(
+            split_mod._normalize_destination({"destination": "shared"}),
+            ("shared", []),
+        )
+
+    def test_object_missing_destination_is_invalid(self):
+        self.assertEqual(
+            split_mod._normalize_destination({"shareWith": ["a@example.com"]}),
+            (None, []),
+        )
+
+    def test_object_bad_destination_is_invalid(self):
+        self.assertEqual(
+            split_mod._normalize_destination({"destination": "nope"}),
+            (None, []),
+        )
+
+    def test_share_with_on_owner_only_is_invalid(self):
+        self.assertEqual(
+            split_mod._normalize_destination(
+                {"destination": "owner-only", "shareWith": ["a@example.com"]}
+            ),
+            (None, []),
+        )
+
+    def test_share_with_on_personal_is_invalid(self):
+        self.assertEqual(
+            split_mod._normalize_destination(
+                {"destination": "personal", "shareWith": ["a@example.com"]}
+            ),
+            (None, []),
+        )
+
+    def test_share_with_empty_list_is_invalid(self):
+        self.assertEqual(
+            split_mod._normalize_destination({"destination": "shared", "shareWith": []}),
+            (None, []),
+        )
+
+    def test_share_with_not_a_list_is_invalid(self):
+        self.assertEqual(
+            split_mod._normalize_destination({"destination": "shared", "shareWith": "a@example.com"}),
+            (None, []),
+        )
+
+    def test_share_with_non_string_entries_invalid(self):
+        self.assertEqual(
+            split_mod._normalize_destination({"destination": "shared", "shareWith": [1, 2]}),
+            (None, []),
+        )
+
+    def test_object_unknown_key_is_invalid(self):
+        self.assertEqual(
+            split_mod._normalize_destination({"destination": "shared", "bogus": True}),
+            (None, []),
+        )
+
+    def test_other_types_are_invalid(self):
+        self.assertEqual(split_mod._normalize_destination(123), (None, []))
+        self.assertEqual(split_mod._normalize_destination(["shared"]), (None, []))
+
+
+class TestCheckVaultDestinationsObjectForm(unittest.TestCase):
+    """Object-form vaultDestination values participate in the same classification checks."""
+
+    def test_valid_object_form_passes_classification(self):
+        vaults = [_make_vault("Kids Accounts", "U")]
+        result = split_mod._check_vault_destinations(
+            vaults, {}, {"P"},
+            {"Kids Accounts": {"destination": "shared", "shareWith": ["kid@example.com"]}},
+        )
+        self.assertEqual(result, [])
+
+    def test_malformed_object_flagged_unclassified(self):
+        vaults = [_make_vault("Kids Accounts", "U")]
+        result = split_mod._check_vault_destinations(
+            vaults, {}, {"P"}, {"Kids Accounts": {"destination": "bogus"}}
+        )
+        self.assertEqual(result, ["Kids Accounts"])
+
+    def test_share_with_on_non_shared_flagged_unclassified(self):
+        vaults = [_make_vault("Finances", "U")]
+        result = split_mod._check_vault_destinations(
+            vaults, {}, {"P"},
+            {"Finances": {"destination": "owner-only", "shareWith": ["a@example.com"]}},
+        )
+        self.assertEqual(result, ["Finances"])
+
+
+class TestMalformedObjectNeverOverwritten(unittest.TestCase):
+    """_process_account must never clobber a present-but-malformed vaultDestination entry."""
+
+    @patch("split.onepux.vaults")
+    @patch("split.onepux.parse_export")
+    def test_malformed_object_flagged_and_preserved(self, mock_parse, mock_vaults):
+        mock_parse.return_value = ({}, {})
+        mock_vaults.return_value = [_make_vault("Kids Accounts", "U")]
+        malformed = {"destination": "shared", "shareWith": []}
+        account = {
+            "name": "test",
+            "puxPath": "tests/fixture.1pux",
+            "bitwardenOrgId": "org-123",
+            "vaultRename": {},
+            "vaultDestination": {"Kids Accounts": dict(malformed)},
+        }
+        config = {"accounts": [account]}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            work_dir = Path(tmpdir) / "work"
+            (work_dir / "files").mkdir(parents=True)
+            config_path = Path(tmpdir) / "config.json"
+            config_path.write_text(json.dumps(config, indent=2) + "\n")
+            with self.assertRaises(SystemExit) as ctx:
+                split_mod._process_account(
+                    account, work_dir, False, config=config, config_path=config_path
+                )
+            written = json.loads(config_path.read_text())
+        self.assertEqual(written["accounts"][0]["vaultDestination"]["Kids Accounts"], malformed)
+        self.assertIn("invalid entry", str(ctx.exception))
+
+
+class TestShareWithInManifest(unittest.TestCase):
+    """Manifest entries carry shareWith only when the object form supplies a non-empty list."""
+
+    def _make_result(self):
+        r = MagicMock()
+        r.bulk_items = []
+        r.attachment_items = []
+        r.archived_count = 0
+        r.dupe_count = 0
+        return r
+
+    @patch("split.onepux.make_import_doc", return_value={})
+    @patch("split.onepux.vault_slug", return_value="kids-slug")
+    @patch("split.onepux.make_collection", return_value=("coll-id", {"id": "coll-id", "name": "Kids Accounts"}))
+    @patch("split.onepux.convert_vault_items")
+    @patch("split.onepux.vaults")
+    @patch("split.onepux.parse_export")
+    def test_manifest_carries_share_with_when_present(
+        self, mock_parse, mock_vaults, mock_convert, mock_coll, mock_slug, mock_doc
+    ):
+        mock_parse.return_value = ({}, {})
+        mock_vaults.return_value = [_make_vault("Kids Accounts", "U")]
+        mock_convert.return_value = self._make_result()
+        account = {
+            "name": "test",
+            "puxPath": "tests/fixture.1pux",
+            "bitwardenOrgId": "org-123",
+            "vaultRename": {},
+            "vaultDestination": {
+                "Kids Accounts": {
+                    "destination": "shared",
+                    "shareWith": ["kid@example.com", "mom@example.com"],
+                }
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            work_dir = Path(tmpdir)
+            (work_dir / "files").mkdir()
+            entries = split_mod._process_account(account, work_dir, False)
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["destination"], "shared")
+        self.assertEqual(entries[0]["shareWith"], ["kid@example.com", "mom@example.com"])
+
+    @patch("split.onepux.make_import_doc", return_value={})
+    @patch("split.onepux.vault_slug", return_value="shared-slug")
+    @patch("split.onepux.make_collection", return_value=("coll-id", {"id": "coll-id", "name": "Shared"}))
+    @patch("split.onepux.convert_vault_items")
+    @patch("split.onepux.vaults")
+    @patch("split.onepux.parse_export")
+    def test_manifest_omits_share_with_key_when_plain_string(
+        self, mock_parse, mock_vaults, mock_convert, mock_coll, mock_slug, mock_doc
+    ):
+        mock_parse.return_value = ({}, {})
+        mock_vaults.return_value = [_make_vault("Shared", "U")]
+        mock_convert.return_value = self._make_result()
+        account = {
+            "name": "test",
+            "puxPath": "tests/fixture.1pux",
+            "bitwardenOrgId": "org-123",
+            "vaultRename": {},
+            "vaultDestination": {"Shared": "shared"},
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            work_dir = Path(tmpdir)
+            (work_dir / "files").mkdir()
+            entries = split_mod._process_account(account, work_dir, False)
+        self.assertEqual(len(entries), 1)
+        self.assertNotIn("shareWith", entries[0])
+
+    @patch("split.onepux.make_import_doc", return_value={})
+    @patch("split.onepux.vault_slug", return_value="shared-slug")
+    @patch("split.onepux.make_collection", return_value=("coll-id", {"id": "coll-id", "name": "Shared"}))
+    @patch("split.onepux.convert_vault_items")
+    @patch("split.onepux.vaults")
+    @patch("split.onepux.parse_export")
+    def test_manifest_omits_share_with_key_when_object_without_it(
+        self, mock_parse, mock_vaults, mock_convert, mock_coll, mock_slug, mock_doc
+    ):
+        mock_parse.return_value = ({}, {})
+        mock_vaults.return_value = [_make_vault("Shared", "U")]
+        mock_convert.return_value = self._make_result()
+        account = {
+            "name": "test",
+            "puxPath": "tests/fixture.1pux",
+            "bitwardenOrgId": "org-123",
+            "vaultRename": {},
+            "vaultDestination": {"Shared": {"destination": "shared"}},
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            work_dir = Path(tmpdir)
+            (work_dir / "files").mkdir()
+            entries = split_mod._process_account(account, work_dir, False)
+        self.assertEqual(len(entries), 1)
+        self.assertNotIn("shareWith", entries[0])
+
+
 class TestBitwardenEmailGuard(unittest.TestCase):
     """The bitwardenEmail guard logic used by import.py and verify.py."""
 

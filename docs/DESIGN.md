@@ -62,7 +62,7 @@ The tool therefore requires an explicit destination declaration for every non-Pr
 
 Three destinations are supported:
 
-- **shared** — normal org collection; all org members may be granted access.
+- **shared** — normal org collection; all org members may be granted access.  `vaultDestination` may instead give an object `{"destination": "shared", "shareWith": [...]}` naming specific member emails, when the intent is narrower than "all org members."  The bw CLI can't set collection member permissions either way, so granting access remains a manual web-vault step — the tool carries the member list through to the manifest and prints a post-import checklist naming the collection and the exact members to grant access to (Admin Console > Organizations > Collections > Manage access).
 - **owner-only** — org collection restricted to the owner.  The bw CLI (2026.8.0) does not expose collection member permission management: `bw edit org-collection` can rename a collection but cannot set per-member access.  The tool creates the collection and imports into it, then prints a post-import notice listing the collections to restrict in the Bitwarden web vault (Admin Console > Organizations > Collections > Manage access).  Restricting access is a manual step.
 - **personal** — routed to personal-mode output alongside the built-in Private vault.  Skipped in org-mode runs; should be handled by a personal-mode config entry.
 

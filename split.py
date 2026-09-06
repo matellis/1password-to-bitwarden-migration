@@ -39,6 +39,44 @@ SSH_KEY_SUPPORTED = True
 VALID_DESTINATIONS = {"shared", "owner-only", "personal"}
 
 
+def _normalize_destination(value) -> tuple[str | None, list[str]]:
+    """Normalize a vaultDestination config value into (destination, share_with).
+
+    `value` may be:
+      - a plain string: "shared" / "owner-only" / "personal"
+      - an object: {"destination": "shared", "shareWith": ["a@example.com", ...]}
+
+    `shareWith` is only valid alongside destination "shared", and when present
+    must be a non-empty list of strings. Returns (None, []) when `value` is
+    absent, blank, or malformed in any way — the caller treats that as
+    unclassified.
+    """
+    if isinstance(value, str):
+        if value in VALID_DESTINATIONS:
+            return value, []
+        return None, []
+
+    if isinstance(value, dict):
+        allowed_keys = {"destination", "shareWith"}
+        if not set(value.keys()) <= allowed_keys:
+            return None, []
+        destination = value.get("destination")
+        if destination not in VALID_DESTINATIONS:
+            return None, []
+        if "shareWith" not in value:
+            return destination, []
+        if destination != "shared":
+            return None, []
+        share_with = value["shareWith"]
+        if not isinstance(share_with, list) or not share_with:
+            return None, []
+        if not all(isinstance(e, str) for e in share_with):
+            return None, []
+        return destination, list(share_with)
+
+    return None, []
+
+
 def _guess_vault_destination(name: str) -> str:
     """Guess a vaultDestination value from a vault name (case-insensitive substring match).
 
@@ -102,7 +140,8 @@ def _check_vault_destinations(
         vault_name = attrs.get("name", attrs.get("uuid", "vault"))
         if vault_type in skip_vault_types:
             continue
-        if vault_destination.get(vault_name) not in VALID_DESTINATIONS:
+        destination, _ = _normalize_destination(vault_destination.get(vault_name))
+        if destination is None:
             unclassified.append(vault_name)
     return unclassified
 
@@ -120,7 +159,8 @@ def _check_vault_destinations_personal(
         vault_name = attrs.get("name", attrs.get("uuid", "vault"))
         if vault_type == "P":
             continue
-        if vault_destination.get(vault_name) not in VALID_DESTINATIONS:
+        destination, _ = _normalize_destination(vault_destination.get(vault_name))
+        if destination is None:
             unclassified.append(vault_name)
     return unclassified
 
@@ -150,7 +190,14 @@ def _process_account(account: dict, work_dir: Path, include_archived: bool,
         added_any = False
         for name in unclassified:
             if name in vault_destination:
-                lines.append(f'  "{name}": needs a value filled in')
+                raw = vault_destination[name]
+                if isinstance(raw, dict):
+                    lines.append(
+                        f'  "{name}": invalid entry (expected "shared"/"owner-only"/"personal"'
+                        f' or {{"destination": "shared", "shareWith": [...]}})'
+                    )
+                else:
+                    lines.append(f'  "{name}": needs a value filled in')
             else:
                 guess = _guess_vault_destination(name)
                 vault_destination[name] = guess
@@ -177,7 +224,9 @@ def _process_account(account: dict, work_dir: Path, include_archived: bool,
         if vault_type in skip_vault_types:
             continue
 
-        destination = vault_destination.get(vault_name_orig, "shared")
+        destination, share_with = _normalize_destination(
+            vault_destination.get(vault_name_orig, "shared")
+        )
         if destination == "personal":
             continue
 
@@ -218,7 +267,7 @@ def _process_account(account: dict, work_dir: Path, include_archived: bool,
         })
 
         total = len(items)
-        manifest_entries.append({
+        manifest_entry = {
             "vaultName": vault_name,
             "vaultType": vault_type,
             "destination": destination,
@@ -233,7 +282,10 @@ def _process_account(account: dict, work_dir: Path, include_archived: bool,
                 "dupesCollapsed": result.dupe_count,
                 "passkeysMarked": marked,
             },
-        })
+        }
+        if share_with:
+            manifest_entry["shareWith"] = share_with
+        manifest_entries.append(manifest_entry)
 
     return manifest_entries
 
@@ -257,11 +309,21 @@ def _process_account_personal(account: dict, work_dir: Path, include_archived: b
     added_any = False
     for n in unclassified:
         if n in vault_destination:
-            print(
-                f"  [{account.get('name', '?')}] Warning: vault {n!r} needs a value filled in"
-                f" for vaultDestination in config.json — skipped (org mode handles it).",
-                file=sys.stderr,
-            )
+            raw = vault_destination[n]
+            if isinstance(raw, dict):
+                print(
+                    f"  [{account.get('name', '?')}] Warning: vault {n!r} has an invalid"
+                    f' vaultDestination entry in config.json (expected "shared"/"owner-only"'
+                    f'/"personal" or {{"destination": "shared", "shareWith": [...]}})'
+                    f" — skipped (org mode handles it).",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"  [{account.get('name', '?')}] Warning: vault {n!r} needs a value filled in"
+                    f" for vaultDestination in config.json — skipped (org mode handles it).",
+                    file=sys.stderr,
+                )
         else:
             guess = _guess_vault_destination(n)
             vault_destination[n] = guess
@@ -286,7 +348,7 @@ def _process_account_personal(account: dict, work_dir: Path, include_archived: b
         vault_name = vault_rename.get(vault_name_raw, vault_name_raw)
 
         if vault_type != "P":
-            dest = vault_destination.get(vault_name_raw, "")
+            dest, _ = _normalize_destination(vault_destination.get(vault_name_raw))
             if dest != "personal":
                 continue
 

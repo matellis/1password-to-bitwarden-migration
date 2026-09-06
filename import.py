@@ -497,6 +497,35 @@ def _import_vault_personal(
     return {"status": status}
 
 
+def _print_owner_only_notice(vault_entry: dict) -> None:
+    print(
+        f"  [{vault_entry['vaultName']}] POST-IMPORT ACTION REQUIRED:"
+        f" restrict this collection to the owner in the Bitwarden web vault"
+        f" (Admin Console > Organizations > Collections > Manage access)."
+        f" The bw CLI does not support setting collection member permissions."
+    )
+
+
+def _print_shared_members_notice(vault_entry: dict) -> None:
+    members = ", ".join(vault_entry.get("shareWith") or [])
+    print(
+        f"  [{vault_entry['vaultName']}] POST-IMPORT ACTION REQUIRED:"
+        f" grant access to this collection for the following member(s) in the"
+        f" Bitwarden web vault (Admin Console > Organizations > Collections >"
+        f" Manage access): {members}."
+        f" The bw CLI does not support setting collection member permissions."
+    )
+
+
+def _post_import_notices(vault_entry: dict, status: str) -> None:
+    if status not in ("ok", "partial"):
+        return
+    if vault_entry.get("destination") == "owner-only":
+        _print_owner_only_notice(vault_entry)
+    if vault_entry.get("destination") == "shared" and vault_entry.get("shareWith"):
+        _print_shared_members_notice(vault_entry)
+
+
 def _is_personal(account: dict, args: argparse.Namespace) -> bool:
     return args.personal or account.get("mode") == "personal"
 
@@ -579,13 +608,7 @@ def main() -> None:
                 if vault_entry.get("personal"):
                     continue
                 result = _import_vault(account, vault_entry, work_dir, ledger, args.yes, args.force)
-                if vault_entry.get("destination") == "owner-only" and result.get("status") in ("ok", "partial"):
-                    print(
-                        f"  [{vault_entry['vaultName']}] POST-IMPORT ACTION REQUIRED:"
-                        f" restrict this collection to the owner in the Bitwarden web vault"
-                        f" (Admin Console > Organizations > Collections > Manage access)."
-                        f" The bw CLI does not support setting collection member permissions."
-                    )
+                _post_import_notices(vault_entry, result.get("status"))
             _save_ledger(name, ledger, personal)
 
     print("\nDone. Run verify.py to confirm the migration.")
