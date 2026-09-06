@@ -16,3 +16,5 @@ Dated, intentional decisions about the direction of this toolkit.  Newest first.
 - The inventory built for `--mark-passkeys` doubles as the re-registration worklist; `passkeys.py --from-bitwarden` / `--gap-report` verify completion either way.
 
 **Consequences.**  `adopt.py` stays EXPERIMENTAL and is only relevant to the CXP route.  Bridge (docs/IOS-APP-SPEC.md) remains a spec.  Revisit this decision if a migration with hundreds of passkeys appears, or if passwordless-only accounts (no password fallback) make re-registration impossible — CXP is the only non-recovery route for those.
+
+**Follow-up, same day.**  Even the inventory file turned out to be overhead for the re-registration route: the app's `=passkey` search is itself the live checklist, and deleting each 1Password passkey as it is re-registered shrinks that search to zero — which is also the completion signal.  The markdown inventory, `--mark-passkeys` markers, and `--gap-report` cross-check are now optional extras for those who want item-level proof, not required steps.  (Lesson recorded: when the route changed, the tooling assumptions from the old route should have been re-examined with it.)

@@ -200,9 +200,14 @@ Desktop `.1pux` exports contain no passkey credentials — this is confirmed by 
 
 Two ways to close the gap (see docs/DECISIONS.md for why):
 
-**Option A — re-register per site (recommended for tens of passkeys).**  The script route has already migrated each item's password, so there is no lockout risk: log in with the password, open the site's security settings, add a passkey, and save it to Bitwarden when prompted.  Passkeys are designed for multiple enrollments per account — the old 1Password passkey needs no removal and dies when 1Password is deleted.  Budget 1–3 minutes per site.  The inventory is your worklist and `--gap-report` proves you got them all.
+**Option A — re-register per site (recommended for tens of passkeys).**  The script route has already migrated each item's password, so there is no lockout risk.  No file, no tooling:
 
-**Option B — CXP transfer (for hundreds of passkeys, or passwordless-only accounts).**  iOS 26 Credential Exchange moves passkey private keys app-to-app with no plaintext file; Bitwarden's iOS app receives transfers natively, so no intermediary app is required.  Costs: per-vault visibility scoping on 1password.com, community-reported failures on large vaults, and duplicates to reconcile afterwards (`adopt.py` or manual deletion).  If an account is truly passwordless-only (no password fallback), CXP is the only non-recovery route — identify those from the inventory before choosing.
+1. In the 1Password app, search `=passkey` — that live search IS the checklist (each person works their own vaults on their own device).
+2. For each item: log into the site with the password, open its security settings, add a passkey, save it to Bitwarden when prompted.  Budget 1–3 minutes per site.
+3. Then delete the passkey from the 1Password item (one tap, same screen).  Passkeys are designed for multiple enrollments per account, so the item keeps working throughout — and the item drops out of the `=passkey` search.
+4. When `=passkey` returns zero results, you are done — that is the verification.  Optional belt-and-braces: `passkeys.py --from-bitwarden` lists what actually landed.
+
+**Option B — CXP transfer (for hundreds of passkeys, or passwordless-only accounts).**  iOS 26 Credential Exchange moves passkey private keys app-to-app with no plaintext file; Bitwarden's iOS app receives transfers natively, so no intermediary app is required.  Costs: per-vault visibility scoping on 1password.com, community-reported failures on large vaults, and duplicates to reconcile afterwards (`adopt.py` or manual deletion).  If an account is truly passwordless-only (no password fallback), CXP is the only non-recovery route — identify those from the `=passkey` search before choosing.
 
 **Every vault goes through the script route, in full, regardless of which option you pick.**  CXP moves credentials only — passwords, passkeys, TOTP seeds — never documents, file attachments, secure notes, credit cards or identities.  A vault that relied on CXP alone would silently lose every non-credential item, so `split.py` / `import.py` always import everything; Option B then layers passkeys on top, per person, at each owner's own pace.
 
@@ -219,7 +224,7 @@ Admin caveat: vault visibility changes on 1password.com affect what the user see
 
 This technique is [documented by the Bitwarden community](https://community.bitwarden.com).
 
-**Build the passkey inventory (do this first, either option):**
+**Optional: machine-readable inventory.**  Not needed for Option A (the `=passkey` search is the checklist).  Build one only if you want `--mark-passkeys` notices in imported items (step 10) or an item-level `--gap-report` cross-check:
 
 1. In the 1Password app (per account), search `=passkey`.  This shows every item with a passkey and which vault it lives in.
 2. Transcribe the results to a markdown file, one line per item:
