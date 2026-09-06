@@ -245,6 +245,206 @@ class TestProcessAccountOpIntegration(unittest.TestCase):
         self.assertTrue(entries)
 
 
+class TestBlankPlaceholderReResolution(unittest.TestCase):
+
+    @patch("split.opacl.owner_email", return_value="owner@example.com")
+    @patch("split.opacl.vault_members")
+    @patch("split.onepux.vaults")
+    @patch("split.onepux.parse_export")
+    def test_blank_with_op_account_and_op_success_is_overwritten(
+        self, mock_parse, mock_vaults, mock_members, mock_owner
+    ):
+        mock_parse.return_value = ({}, {})
+        mock_vaults.return_value = [_make_vault("Legal Docs", "U")]
+        mock_members.return_value = {
+            "emails": ["lawyer@example.com"],
+            "groups": [],
+            "failed_groups": [],
+        }
+        account = {
+            "name": "test",
+            "puxPath": "tests/fixture.1pux",
+            "bitwardenOrgId": "org-123",
+            "opAccount": "test-acct",
+            "vaultRename": {},
+            "vaultDestination": {"Legal Docs": ""},
+        }
+        config = {"accounts": [account]}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            work_dir = Path(tmpdir) / "work"
+            (work_dir / "files").mkdir(parents=True)
+            config_path = Path(tmpdir) / "config.json"
+            config_path.write_text(json.dumps(config, indent=2) + "\n")
+            with self.assertRaises(SystemExit):
+                split_mod._process_account(
+                    account, work_dir, False, config=config, config_path=config_path
+                )
+            written = json.loads(config_path.read_text())
+        self.assertEqual(
+            written["accounts"][0]["vaultDestination"],
+            {"Legal Docs": {"destination": "shared", "shareWith": ["lawyer@example.com"]}},
+        )
+
+    @patch("split.opacl.owner_email", return_value="owner@example.com")
+    @patch("split.opacl.vault_members", return_value=None)
+    @patch("split.onepux.vaults")
+    @patch("split.onepux.parse_export")
+    def test_blank_with_op_account_and_op_failure_stays_blank(
+        self, mock_parse, mock_vaults, mock_members, mock_owner
+    ):
+        mock_parse.return_value = ({}, {})
+        mock_vaults.return_value = [_make_vault("Legal Docs", "U")]
+        account = {
+            "name": "test",
+            "puxPath": "tests/fixture.1pux",
+            "bitwardenOrgId": "org-123",
+            "opAccount": "test-acct",
+            "vaultRename": {},
+            "vaultDestination": {"Legal Docs": ""},
+        }
+        config = {"accounts": [account]}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            work_dir = Path(tmpdir) / "work"
+            (work_dir / "files").mkdir(parents=True)
+            config_path = Path(tmpdir) / "config.json"
+            config_path.write_text(json.dumps(config, indent=2) + "\n")
+            try:
+                split_mod._process_account(
+                    account, work_dir, False, config=config, config_path=config_path
+                )
+                self.fail("expected SystemExit")
+            except SystemExit as e:
+                self.assertIn("needs a value filled in", str(e))
+            written = json.loads(config_path.read_text())
+        self.assertEqual(written["accounts"][0]["vaultDestination"], {"Legal Docs": ""})
+
+    @patch("split.opacl.owner_email")
+    @patch("split.opacl.vault_members")
+    @patch("split.onepux.vaults")
+    @patch("split.onepux.parse_export")
+    def test_blank_without_op_account_stays_blank_and_op_not_consulted(
+        self, mock_parse, mock_vaults, mock_members, mock_owner
+    ):
+        mock_parse.return_value = ({}, {})
+        mock_vaults.return_value = [_make_vault("Legal Docs", "U")]
+        account = {
+            "name": "test",
+            "puxPath": "tests/fixture.1pux",
+            "bitwardenOrgId": "org-123",
+            "vaultRename": {},
+            "vaultDestination": {"Legal Docs": ""},
+        }
+        config = {"accounts": [account]}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            work_dir = Path(tmpdir) / "work"
+            (work_dir / "files").mkdir(parents=True)
+            config_path = Path(tmpdir) / "config.json"
+            config_path.write_text(json.dumps(config, indent=2) + "\n")
+            with self.assertRaises(SystemExit):
+                split_mod._process_account(
+                    account, work_dir, False, config=config, config_path=config_path
+                )
+            written = json.loads(config_path.read_text())
+        self.assertEqual(written["accounts"][0]["vaultDestination"], {"Legal Docs": ""})
+        mock_members.assert_not_called()
+        mock_owner.assert_not_called()
+
+    @patch("split.opacl.owner_email", return_value="owner@example.com")
+    @patch("split.opacl.vault_members")
+    @patch("split.onepux.vaults")
+    @patch("split.onepux.parse_export")
+    def test_junk_non_blank_string_with_op_account_not_overwritten(
+        self, mock_parse, mock_vaults, mock_members, mock_owner
+    ):
+        mock_parse.return_value = ({}, {})
+        mock_vaults.return_value = [_make_vault("Legal Docs", "U")]
+        account = {
+            "name": "test",
+            "puxPath": "tests/fixture.1pux",
+            "bitwardenOrgId": "org-123",
+            "opAccount": "test-acct",
+            "vaultRename": {},
+            "vaultDestination": {"Legal Docs": "sharedd"},
+        }
+        config = {"accounts": [account]}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            work_dir = Path(tmpdir) / "work"
+            (work_dir / "files").mkdir(parents=True)
+            config_path = Path(tmpdir) / "config.json"
+            config_path.write_text(json.dumps(config, indent=2) + "\n")
+            with self.assertRaises(SystemExit):
+                split_mod._process_account(
+                    account, work_dir, False, config=config, config_path=config_path
+                )
+            written = json.loads(config_path.read_text())
+        self.assertEqual(written["accounts"][0]["vaultDestination"], {"Legal Docs": "sharedd"})
+        mock_members.assert_not_called()
+
+    @patch("split.opacl.owner_email", return_value="owner@example.com")
+    @patch("split.opacl.vault_members")
+    @patch("split.onepux.vaults")
+    @patch("split.onepux.parse_export")
+    def test_malformed_object_with_op_account_not_overwritten(
+        self, mock_parse, mock_vaults, mock_members, mock_owner
+    ):
+        mock_parse.return_value = ({}, {})
+        mock_vaults.return_value = [_make_vault("Legal Docs", "U")]
+        account = {
+            "name": "test",
+            "puxPath": "tests/fixture.1pux",
+            "bitwardenOrgId": "org-123",
+            "opAccount": "test-acct",
+            "vaultRename": {},
+            "vaultDestination": {"Legal Docs": {"destination": "bogus"}},
+        }
+        config = {"accounts": [account]}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            work_dir = Path(tmpdir) / "work"
+            (work_dir / "files").mkdir(parents=True)
+            config_path = Path(tmpdir) / "config.json"
+            config_path.write_text(json.dumps(config, indent=2) + "\n")
+            with self.assertRaises(SystemExit):
+                split_mod._process_account(
+                    account, work_dir, False, config=config, config_path=config_path
+                )
+            written = json.loads(config_path.read_text())
+        self.assertEqual(
+            written["accounts"][0]["vaultDestination"], {"Legal Docs": {"destination": "bogus"}}
+        )
+        mock_members.assert_not_called()
+
+    @patch("split.opacl.owner_email", return_value="owner@example.com")
+    @patch("split.opacl.vault_members")
+    @patch("split.onepux.vaults")
+    @patch("split.onepux.parse_export")
+    def test_present_valid_entry_never_overwritten_op_not_consulted(
+        self, mock_parse, mock_vaults, mock_members, mock_owner
+    ):
+        mock_parse.return_value = ({}, {})
+        mock_vaults.return_value = [_make_vault("Shared Team", "U")]
+        account = {
+            "name": "test",
+            "puxPath": "tests/fixture.1pux",
+            "bitwardenOrgId": "org-123",
+            "opAccount": "test-acct",
+            "vaultRename": {},
+            "vaultDestination": {"Shared Team": "shared"},
+        }
+        config = {"accounts": [account]}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            work_dir = Path(tmpdir) / "work"
+            (work_dir / "files").mkdir(parents=True)
+            config_path = Path(tmpdir) / "config.json"
+            config_path.write_text(json.dumps(config, indent=2) + "\n")
+            entries = split_mod._process_account(
+                account, work_dir, False, config=config, config_path=config_path
+            )
+            written = json.loads(config_path.read_text())
+        self.assertEqual(written["accounts"][0]["vaultDestination"], {"Shared Team": "shared"})
+        mock_members.assert_not_called()
+        self.assertTrue(entries)
+
+
 class TestProcessAccountPersonalOpIntegration(unittest.TestCase):
 
     @patch("split.opacl.owner_email", return_value="owner@example.com")
@@ -315,6 +515,76 @@ class TestProcessAccountPersonalOpIntegration(unittest.TestCase):
             written = json.loads(config_path.read_text())
         self.assertEqual(written["accounts"][0]["vaultDestination"], {"Work": "personal"})
         mock_members.assert_not_called()
+
+    @patch("split.opacl.owner_email", return_value="owner@example.com")
+    @patch("split.opacl.vault_members")
+    @patch("split.onepux.vaults")
+    @patch("split.onepux.parse_export")
+    def test_personal_mode_blank_placeholder_reresolved_via_op(
+        self, mock_parse, mock_vaults, mock_members, mock_owner
+    ):
+        mock_parse.return_value = ({}, {})
+        mock_vaults.return_value = [_make_vault("Family Docs", "U")]
+        mock_members.return_value = {
+            "emails": ["mom@example.com"],
+            "groups": [],
+            "failed_groups": [],
+        }
+        account = {
+            "name": "test",
+            "puxPath": "tests/fixture.1pux",
+            "opAccount": "test-acct",
+            "vaultRename": {},
+            "vaultDestination": {"Family Docs": ""},
+        }
+        config = {"accounts": [account]}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            work_dir = Path(tmpdir) / "work"
+            (work_dir / "files").mkdir(parents=True)
+            config_path = Path(tmpdir) / "config.json"
+            config_path.write_text(json.dumps(config, indent=2) + "\n")
+            stderr_buf = io.StringIO()
+            with redirect_stderr(stderr_buf):
+                split_mod._process_account_personal(
+                    account, work_dir, False, config=config, config_path=config_path
+                )
+            written = json.loads(config_path.read_text())
+        self.assertEqual(
+            written["accounts"][0]["vaultDestination"],
+            {"Family Docs": {"destination": "shared", "shareWith": ["mom@example.com"]}},
+        )
+        self.assertIn("mom@example.com", stderr_buf.getvalue())
+
+    @patch("split.opacl.owner_email", return_value="owner@example.com")
+    @patch("split.opacl.vault_members", return_value=None)
+    @patch("split.onepux.vaults")
+    @patch("split.onepux.parse_export")
+    def test_personal_mode_blank_placeholder_op_failure_stays_blank(
+        self, mock_parse, mock_vaults, mock_members, mock_owner
+    ):
+        mock_parse.return_value = ({}, {})
+        mock_vaults.return_value = [_make_vault("Family Docs", "U")]
+        account = {
+            "name": "test",
+            "puxPath": "tests/fixture.1pux",
+            "opAccount": "test-acct",
+            "vaultRename": {},
+            "vaultDestination": {"Family Docs": ""},
+        }
+        config = {"accounts": [account]}
+        with tempfile.TemporaryDirectory() as tmpdir:
+            work_dir = Path(tmpdir) / "work"
+            (work_dir / "files").mkdir(parents=True)
+            config_path = Path(tmpdir) / "config.json"
+            config_path.write_text(json.dumps(config, indent=2) + "\n")
+            stderr_buf = io.StringIO()
+            with redirect_stderr(stderr_buf):
+                split_mod._process_account_personal(
+                    account, work_dir, False, config=config, config_path=config_path
+                )
+            written = json.loads(config_path.read_text())
+        self.assertEqual(written["accounts"][0]["vaultDestination"], {"Family Docs": ""})
+        self.assertIn("needs a value filled in", stderr_buf.getvalue())
 
 
 if __name__ == "__main__":

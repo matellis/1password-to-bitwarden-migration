@@ -98,7 +98,7 @@ JSON has no comment syntax, so the key serves as its own documentation.  Omittin
 
 **`vaultDestination` — your privacy decision**
 
-Every non-Private vault must be explicitly classified.  When `split.py` finds an unclassified vault, it writes a guess into `config.json` for you to confirm.  Existing entries — including ones you deliberately left blank — are never overwritten.  Org mode still exits non-zero after writing so you can review the guesses in `config.json` before re-running; personal mode warns and skips instead.
+Every non-Private vault must be explicitly classified.  When `split.py` finds an unclassified vault, it writes a guess into `config.json` for you to confirm.  Existing non-blank entries are never overwritten.  A bare `""` entry is a machine-written placeholder rather than a decision, so if `opAccount` is set it's re-resolved via op on each run; without `opAccount` it's left alone.  Org mode still exits non-zero after writing so you can review the guesses in `config.json` before re-running; personal mode warns and skips instead.
 
 When the account sets `opAccount` and `op` is installed and signed in, `split.py` tries to resolve the vault's real sharing info before falling back to the name-substring guess:
 

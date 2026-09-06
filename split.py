@@ -257,7 +257,7 @@ def _process_account(account: dict, work_dir: Path, include_archived: bool,
         lines = []
         added_any = False
         owner = opacl.owner_email(op_account) if op_account and any(
-            n not in vault_destination for n in unclassified
+            n not in vault_destination or vault_destination[n] == "" for n in unclassified
         ) else None
         for name in unclassified:
             if name in vault_destination:
@@ -267,6 +267,15 @@ def _process_account(account: dict, work_dir: Path, include_archived: bool,
                         f'  "{name}": invalid entry (expected "shared"/"owner-only"/"personal"'
                         f' or {{"destination": "shared", "shareWith": [...]}})'
                     )
+                elif raw == "" and op_account:
+                    op_result = _op_guess_vault_destination(name, op_account, owner)
+                    if op_result is not None:
+                        value, label = op_result
+                        vault_destination[name] = value
+                        added_any = True
+                        lines.append(f'  "{name}": {label} (replaces blank placeholder)')
+                    else:
+                        lines.append(f'  "{name}": needs a value filled in')
                 else:
                     lines.append(f'  "{name}": needs a value filled in')
             else:
@@ -380,7 +389,7 @@ def _process_account_personal(account: dict, work_dir: Path, include_archived: b
     unclassified = _check_vault_destinations_personal(vault_list, vault_rename, vault_destination)
     added_any = False
     owner = opacl.owner_email(op_account) if op_account and any(
-        n not in vault_destination for n in unclassified
+        n not in vault_destination or vault_destination[n] == "" for n in unclassified
     ) else None
     for n in unclassified:
         if n in vault_destination:
@@ -393,6 +402,23 @@ def _process_account_personal(account: dict, work_dir: Path, include_archived: b
                     f" — skipped (org mode handles it).",
                     file=sys.stderr,
                 )
+            elif raw == "" and op_account:
+                op_result = _op_guess_vault_destination(n, op_account, owner)
+                if op_result is not None:
+                    value, label = op_result
+                    vault_destination[n] = value
+                    added_any = True
+                    print(
+                        f"  [{account.get('name', '?')}] Vault {n!r} blank vaultDestination"
+                        f" placeholder replaced via op: {label}.",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(
+                        f"  [{account.get('name', '?')}] Warning: vault {n!r} needs a value filled in"
+                        f" for vaultDestination in config.json — skipped (org mode handles it).",
+                        file=sys.stderr,
+                    )
             else:
                 print(
                     f"  [{account.get('name', '?')}] Warning: vault {n!r} needs a value filled in"
