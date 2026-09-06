@@ -295,7 +295,7 @@ class TestEmptyVaultImport(unittest.TestCase):
                     account, vault_entry, work_dir, ledger, yes=True, force=False
                 )
 
-            self.assertEqual(result.get("status"), "ok")
+            self.assertEqual(result.get("status"), "empty")
             mock_bulk.assert_not_called()
             entry = ledger["imported"][vault_name]
             self.assertEqual(entry["importedCount"], 0)
@@ -328,7 +328,7 @@ class TestEmptyVaultImport(unittest.TestCase):
                     account, vault_entry, work_dir, ledger, yes=True, force=False
                 )
 
-            self.assertEqual(result.get("status"), "ok")
+            self.assertEqual(result.get("status"), "empty")
             mock_bulk.assert_not_called()
 
 

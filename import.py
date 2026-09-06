@@ -177,7 +177,7 @@ def _import_vault(
             "failures": 0,
             "collectionId": None,
         }
-        return {"status": "ok"}
+        return {"status": "empty"}
 
     imported_count = 0
     skipped_count = 0
