@@ -1,6 +1,9 @@
 # Spec: Bridge, an iOS companion app for credential migration
 
-Status: draft, not yet built. This document specifies a small iOS app that closes the
+Status: draft, not yet built; **deprioritized 2026-09-05** — re-registration is the
+recommended passkey path at small scale and Bitwarden's iOS app receives CXP transfers
+natively, so Bridge is not needed for the transfer itself.  See docs/DECISIONS.md.
+This document specifies a small iOS app that closes the
 gaps the desktop toolkit cannot: passkey transfer, transfer inventory, and selective
 routing. Working title "Bridge".
 

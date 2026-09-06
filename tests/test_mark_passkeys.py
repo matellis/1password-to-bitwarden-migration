@@ -158,6 +158,7 @@ class TestAppendMarker(unittest.TestCase):
     def test_marker_content(self):
         self.assertIn("[1Password migration]", pkinv.MARKER)
         self.assertIn("passkey", pkinv.MARKER.lower())
+        self.assertIn("Re-register", pkinv.MARKER)
         self.assertIn("iOS Credential Exchange", pkinv.MARKER)
 
 

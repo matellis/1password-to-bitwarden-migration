@@ -196,13 +196,17 @@ python3 verify.py --personal --account me-family
 
 ### 9. Passkeys
 
-Desktop `.1pux` exports contain no passkey credentials — this is confirmed by 1Password and by `passkeys.py --from-pux` scanning real exports.  The 1Password CLI (`op`) does not expose passkeys either.  The only path that moves passkeys is iOS 26 Credential Exchange (CXP) via the Single-Vault Pipeline below.
+Desktop `.1pux` exports contain no passkey credentials — this is confirmed by 1Password and by `passkeys.py --from-pux` scanning real exports.  The 1Password CLI (`op`) does not expose passkeys either — re-verified against op 2.39.0: items confirmed to hold a passkey (via the app's `=passkey` search) show no passkey field, flag, or null placeholder in `op item list` or `op item get`.  There is no automated way to discover which items have passkeys; the inventory below is built by hand.
 
-**Every vault goes through the script route, in full.**  CXP moves credentials only — passwords, passkeys, TOTP seeds — never documents, file attachments, secure notes, credit cards or identities.  A vault that relied on CXP alone would silently lose every non-credential item, so there is no either/or choice: `split.py` / `import.py` import everything, and CXP layers passkeys on top afterwards, per person, at each owner's own pace.
+Two ways to close the gap (see docs/DECISIONS.md for why):
 
-The cost is duplicates: each passkey-bearing login exists twice until cleanup — the script-imported item (carrying the passkey notice in its notes) and the CXP-created one.  Duplicates are recoverable; missing items are not.  `adopt.py` merges the passkey into the script-imported item and removes the duplicate, or a user deletes the duplicate by hand (see "If users skip the passkey step" below).  Before importing, search `=passkey` in the 1Password app and pass the list to `split.py --mark-passkeys` so every passkey gap is visible in Bitwarden from day one.
+**Option A — re-register per site (recommended for tens of passkeys).**  The script route has already migrated each item's password, so there is no lockout risk: log in with the password, open the site's security settings, add a passkey, and save it to Bitwarden when prompted.  Passkeys are designed for multiple enrollments per account — the old 1Password passkey needs no removal and dies when 1Password is deleted.  Budget 1–3 minutes per site.  The inventory is your worklist and `--gap-report` proves you got them all.
 
-**Single-Vault Pipeline (iOS 26, one vault at a time):**
+**Option B — CXP transfer (for hundreds of passkeys, or passwordless-only accounts).**  iOS 26 Credential Exchange moves passkey private keys app-to-app with no plaintext file; Bitwarden's iOS app receives transfers natively, so no intermediary app is required.  Costs: per-vault visibility scoping on 1password.com, community-reported failures on large vaults, and duplicates to reconcile afterwards (`adopt.py` or manual deletion).  If an account is truly passwordless-only (no password fallback), CXP is the only non-recovery route — identify those from the inventory before choosing.
+
+**Every vault goes through the script route, in full, regardless of which option you pick.**  CXP moves credentials only — passwords, passkeys, TOTP seeds — never documents, file attachments, secure notes, credit cards or identities.  A vault that relied on CXP alone would silently lose every non-credential item, so `split.py` / `import.py` always import everything; Option B then layers passkeys on top, per person, at each owner's own pace.
+
+**Single-Vault Pipeline (Option B, iOS 26, one vault at a time):**
 
 1. On 1password.com in a desktop browser: Manage Account → People → select your own user → Manage Vaults → deselect every vault except the one you are migrating now.  The 1Password iOS app now only sees that vault.
 2. On an iOS 26 device: 1Password app → Settings → Advanced → Start Export → approve → choose Bitwarden as the destination.  CXP transfers that one vault — including passkey private keys and TOTP seeds — app-to-app with no plaintext file on disk.
@@ -215,7 +219,7 @@ Admin caveat: vault visibility changes on 1password.com affect what the user see
 
 This technique is [documented by the Bitwarden community](https://community.bitwarden.com).
 
-**Build the passkey inventory (do this first):**
+**Build the passkey inventory (do this first, either option):**
 
 1. In the 1Password app (per account), search `=passkey`.  This shows every item with a passkey and which vault it lives in.
 2. Transcribe the results to a markdown file, one line per item:
@@ -228,7 +232,7 @@ This technique is [documented by the Bitwarden community](https://community.bitw
    python3 passkeys.py --account family --manual passkeys-family.md
    # => work/passkeys/index.html
    ```
-4. Open `work/passkeys/index.html` on your phone and check off each passkey as you transfer it.
+4. Open `work/passkeys/index.html` on your phone and check off each passkey as you re-register or transfer it.
 
 **Scan the export (optional sanity check):**
 
@@ -244,11 +248,11 @@ This searches the export JSON for any key or string matching `passkey`, `webauth
 python3 passkeys.py --account family --from-bitwarden
 ```
 
-This reads `bw list items` and reports login items whose `fido2Credentials` field is non-empty.  Run after CXP transfers to verify passkeys arrived in Bitwarden.
+This reads `bw list items` and reports login items whose `fido2Credentials` field is non-empty.  Run after re-registration or CXP transfers to verify passkeys arrived in Bitwarden.
 
 ### 10. If users skip the passkey step
 
-Some users will complete the script route and never do the CXP transfer.  Their passkeys are silently absent in Bitwarden.  Three tools make this visible and recoverable.
+Some users will complete the script route and never re-register or transfer their passkeys.  Their passkeys are silently absent in Bitwarden.  Three tools make this visible and recoverable.
 
 **Markers in the imported items** — run split.py with a passkey inventory and every affected login will have a notice in its notes field:
 
@@ -258,11 +262,11 @@ python3 split.py --mark-passkeys passkeys-family.md --account family
 
 The inventory file can be the same markdown file you build for the checklist (`- Site | username | url`) or a Bridge JSON file (`{entries:[{title,username,url}]}`).  The notice reads:
 
-> [1Password migration] This login had a passkey that was NOT migrated. Re-add it via iOS Credential Exchange (see README), or replace this item with the CXP-transferred one.
+> [1Password migration] This login had a passkey that was NOT migrated. Re-register it into Bitwarden on the site (log in with the password, add a passkey in security settings), or transfer it via iOS Credential Exchange (see README).
 
 Users see this in the Bitwarden web vault as soon as they open the item.
 
-**Gap report** — after CXP transfers are supposed to be done, check who is finished:
+**Gap report** — after re-registration or CXP transfers are supposed to be done, check who is finished:
 
 ```bash
 # Load the inventory and confirm what is in Bitwarden
@@ -316,6 +320,7 @@ See [docs/MAPPING.md](docs/MAPPING.md) for the full category and field conversio
 
 ## Companion apps and upstream
 
-- [docs/IOS-APP-SPEC.md](docs/IOS-APP-SPEC.md) specifies "Bridge", a small iOS 26 app that receives a CXP transfer from 1Password and re-exports only the passkey-bearing login items, keeping the duplicate set minimal; its checklist JSON feeds `split.py --mark-passkeys` and `passkeys.py --gap-report`. Not yet built.
+- [docs/IOS-APP-SPEC.md](docs/IOS-APP-SPEC.md) specifies "Bridge", a small iOS 26 app that receives a CXP transfer from 1Password and re-exports only the passkey-bearing login items, keeping the duplicate set minimal; its checklist JSON feeds `split.py --mark-passkeys` and `passkeys.py --gap-report`. Not yet built; deprioritized — see [docs/DECISIONS.md](docs/DECISIONS.md).
+- [docs/DECISIONS.md](docs/DECISIONS.md) records dated, intentional direction decisions (e.g. the 2026-09-05 passkey strategy).
 - [docs/MACOS-APP-SPEC.md](docs/MACOS-APP-SPEC.md) specifies a Migration Assistant-style macOS app that wraps this toolkit for less technical users: the scripts stay the engine, the app makes the runbook clickable. Not yet built.
 - [docs/UPSTREAM-IMPORTER-PR.md](docs/UPSTREAM-IMPORTER-PR.md) scopes a fix for the root cause in Bitwarden's own importer ([bitwarden/clients#20724](https://github.com/bitwarden/clients/issues/20724)), including a file map, test plan, draft PR description, and an untested draft patch in [docs/upstream/](docs/upstream/).

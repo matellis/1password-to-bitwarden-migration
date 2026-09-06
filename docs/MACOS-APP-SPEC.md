@@ -227,18 +227,24 @@ plain-text file.
 ### Screen 8 — Passkey handoff
 
 This screen is shown after verify, whether or not the user has passkeys. It serves as
-the transition to the iOS pipeline.
+the transition to passkey closure. Per docs/DECISIONS.md (2026-09-05), re-registration
+is the default recommendation at small scale; the CXP/Bridge route is the at-scale or
+passwordless-only option.
 
-Two sections:
+Three sections:
+
+**Re-register (default).** A plain-language explanation: log into each site with the
+migrated password, add a passkey in the site's security settings, save it to Bitwarden.
+The checklist below is the worklist.
 
 **Build the passkey inventory.** Instructions to search `=passkey` in the source app
 and transcribe the results. A text editor area in the screen accepts the markdown list
 directly. A "Generate checklist" button runs `passkeys.py --account <name> --manual`
 with the pasted content and opens the resulting `work/passkeys/index.html` in the
 default browser. A note: "Open that page on your phone and check off each passkey as
-you transfer it."
+you re-register or transfer it."
 
-**Use the iOS companion.** A plain-language description of Bridge and the CXP passkey
+**Use the iOS companion (at scale).** A plain-language description of Bridge and the CXP passkey
 transfer, with a link to the iOS app's TestFlight or App Store page. If a Bridge checklist
 JSON is available (dragged in or picked with NSOpenPanel), a "Import checklist" button
 runs `passkeys.py --gap-report` and shows the result inline.

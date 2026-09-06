@@ -14,8 +14,9 @@ from urllib.parse import urlparse
 
 MARKER = (
     "[1Password migration] This login had a passkey that was NOT migrated. "
-    "Re-add it via iOS Credential Exchange (see README), or replace this item "
-    "with the CXP-transferred one."
+    "Re-register it into Bitwarden on the site (log in with the password, "
+    "add a passkey in security settings), or transfer it via iOS Credential "
+    "Exchange (see README)."
 )
 
 

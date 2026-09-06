@@ -9,8 +9,8 @@ Re-verified against op 2.39.0 (2026-09-05): for items confirmed to hold a passke
 There is no desktop file export path for passkeys.  Passkeys are transferable via iOS 26 Credential Exchange (CXP) using the Single-Vault Pipeline described in README.md step 9.  That pipeline is also the only route that moves passkeys without per-site re-registration.
 
 **Transfer options:**
-- **iOS 26 Single-Vault Pipeline (recommended):** Scope vault visibility to one vault at a time on 1password.com, then run CXP from the iOS 26 1Password app to Bitwarden.  Moves passwords, passkeys, and TOTP seeds for that vault only.  Does not move documents, file attachments, secure notes, credit cards, or identities — use the script route for those.
-- **Per-site re-registration:** Visit each site, remove the 1Password passkey, and register a new passkey into Bitwarden.
+- **Per-site re-registration (recommended for tens of passkeys):** log into each site with the migrated password, add a passkey in the site's security settings, save it to Bitwarden.  No removal of the old passkey needed (multiple enrollments per account are by design); no lockout risk since the password migrated.  See README step 9, Option A.
+- **iOS 26 Single-Vault Pipeline (for hundreds of passkeys or passwordless-only accounts):** Scope vault visibility to one vault at a time on 1password.com, then run CXP from the iOS 26 1Password app to Bitwarden (whose iOS app receives transfers natively).  Moves passwords, passkeys, and TOTP seeds for that vault only.  Does not move documents, file attachments, secure notes, credit cards, or identities — use the script route for those.  Community reports note transfer failures on large vaults; expect duplicates to reconcile afterwards.
 
 After migration, run `passkeys.py --from-bitwarden` to confirm which items hold passkeys in Bitwarden (`fido2Credentials` non-empty).
 
