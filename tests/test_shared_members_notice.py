@@ -33,14 +33,14 @@ class TestSharedMembersNotice(unittest.TestCase):
         self.assertIn("Manage access", out)
         self.assertIn("bw CLI does not support setting collection member permissions", out)
 
-    def test_owner_only_notice_unchanged_format(self):
+    def test_owner_only_notice_format(self):
         vault_entry = {"vaultName": "Finances", "destination": "owner-only"}
         buf = io.StringIO()
         with redirect_stdout(buf):
             _import_mod._print_owner_only_notice(vault_entry)
         out = buf.getvalue()
         self.assertIn("Finances", out)
-        self.assertIn("POST-IMPORT ACTION REQUIRED", out)
+        self.assertIn("Owner-only collection imported", out)
         self.assertIn("Regular members cannot see a new collection", out)
 
     def _run_main_loop_notice_check(self, vault_entry: dict, status: str) -> str:
