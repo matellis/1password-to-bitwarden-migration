@@ -9,6 +9,8 @@ Creates tests/fixture.1pux (gitignored) containing:
       * Credit card
       * An archived login (must be skipped by default)
       * A login with a reference-type field (attachment reference)
+      * An API Credential (category 112) with username/credential section fields
+      * An SSH Key (category 114) with a sshKey-typed field and a file-typed field
   - A Shared vault (type U) with:
       * Document item (category 006) with a real file in files/
 
@@ -37,6 +39,10 @@ DOC_FILENAME = "important.txt"
 DOC_CONTENT = b"This is a test document attachment.\n"
 
 REF_ITEM_ID = "ffffffffffffffffffffffffffffffff"
+
+SSH_PUB_FILE_ID = "eeddccbbaa99887766eeddccbbaa9988"
+SSH_PUB_FILENAME = "id_rsa.pub"
+SSH_PUB_CONTENT = b"ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC test@example.com\n"
 
 EXPORT_ATTRIBUTES = {
     "version": "3",
@@ -108,7 +114,7 @@ EXPORT_DATA = {
                             "createdAt": 1700000050,
                             "updatedAt": 1700000050,
                             "state": "active",
-                            "categoryUuid": "002",
+                            "categoryUuid": "003",
                             "details": {
                                 "loginFields": [],
                                 "notesPlain": "Wi-Fi password: hunter2\nRouter IP: 192.168.1.1",
@@ -126,7 +132,7 @@ EXPORT_DATA = {
                             "createdAt": 1700000060,
                             "updatedAt": 1700000060,
                             "state": "active",
-                            "categoryUuid": "003",
+                            "categoryUuid": "002",
                             "details": {
                                 "loginFields": [],
                                 "notesPlain": "",
@@ -248,7 +254,7 @@ EXPORT_DATA = {
                             "createdAt": 1700001000,
                             "updatedAt": 1700001000,
                             "state": "active",
-                            "categoryUuid": "002",
+                            "categoryUuid": "003",
                             "details": {
                                 "loginFields": [],
                                 "notesPlain": "This is a confidential note.\nLine two.",
@@ -279,7 +285,7 @@ EXPORT_DATA = {
                             "createdAt": 1700002000,
                             "updatedAt": 1700002000,
                             "state": "active",
-                            "categoryUuid": "003",
+                            "categoryUuid": "002",
                             "details": {
                                 "loginFields": [],
                                 "notesPlain": "",
@@ -360,6 +366,88 @@ EXPORT_DATA = {
                                 "tags": [],
                             },
                         },
+                        {
+                            "uuid": "apicreditem00000000000000000000001",
+                            "favIndex": 0,
+                            "createdAt": 1700005000,
+                            "updatedAt": 1700005000,
+                            "state": "active",
+                            "categoryUuid": "112",
+                            "details": {
+                                "loginFields": [],
+                                "notesPlain": "",
+                                "sections": [
+                                    {
+                                        "title": "",
+                                        "name": "api_cred_section",
+                                        "fields": [
+                                            {"title": "username", "id": "username", "value": {"string": "svc-account"}, "indexInSection": 0},
+                                            {"title": "credential", "id": "credential", "value": {"concealed": "sk-example-token-123"}, "indexInSection": 1},
+                                            {"title": "Hostname", "id": "hostname", "value": {"string": "api.example.com"}, "indexInSection": 2},
+                                            {"title": "Type", "id": "type", "value": {"string": "bearer"}, "indexInSection": 3},
+                                        ],
+                                    }
+                                ],
+                                "passwordHistory": [],
+                            },
+                            "overview": {
+                                "title": "Example API Credential",
+                                "tags": [],
+                            },
+                        },
+                        {
+                            "uuid": "sshkeyitem000000000000000000000001",
+                            "favIndex": 0,
+                            "createdAt": 1700006000,
+                            "updatedAt": 1700006000,
+                            "state": "active",
+                            "categoryUuid": "114",
+                            "details": {
+                                "loginFields": [],
+                                "notesPlain": "",
+                                "sections": [
+                                    {
+                                        "title": "",
+                                        "name": "ssh_key_section",
+                                        "fields": [
+                                            {
+                                                "title": "private key",
+                                                "id": "private_key",
+                                                "value": {
+                                                    "sshKey": {
+                                                        "privateKey": "-----BEGIN OPENSSH PRIVATE KEY-----\ntest-fallback-plain\n-----END OPENSSH PRIVATE KEY-----\n",
+                                                        "metadata": {
+                                                            "privateKey": "-----BEGIN OPENSSH PRIVATE KEY-----\ntest\n-----END OPENSSH PRIVATE KEY-----\n",
+                                                            "publicKey": "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC test@example.com",
+                                                            "fingerprint": "SHA256:abc123examplefingerprint",
+                                                            "keyType": "rsa",
+                                                        },
+                                                    }
+                                                },
+                                                "indexInSection": 0,
+                                            },
+                                            {
+                                                "title": "public key file",
+                                                "id": "pubkey_file",
+                                                "value": {
+                                                    "file": {
+                                                        "documentId": SSH_PUB_FILE_ID,
+                                                        "fileName": SSH_PUB_FILENAME,
+                                                        "decryptedSize": len(SSH_PUB_CONTENT),
+                                                    }
+                                                },
+                                                "indexInSection": 1,
+                                            },
+                                        ],
+                                    }
+                                ],
+                                "passwordHistory": [],
+                            },
+                            "overview": {
+                                "title": "Example SSH Key",
+                                "tags": [],
+                            },
+                        },
                     ],
                 },
                 {
@@ -410,6 +498,7 @@ def build_fixture() -> None:
         zf.writestr("export.data", json.dumps(EXPORT_DATA))
         zf.writestr(f"files/{DOC_ID}___{DOC_FILENAME}", DOC_CONTENT)
         zf.writestr(f"files/{REF_ITEM_ID}___keyfile.pem", b"-----BEGIN RSA KEY-----\ntest\n-----END RSA KEY-----\n")
+        zf.writestr(f"files/{SSH_PUB_FILE_ID}___{SSH_PUB_FILENAME}", SSH_PUB_CONTENT)
 
     FIXTURE_PATH.write_bytes(buf.getvalue())
     print(f"Wrote {FIXTURE_PATH} ({FIXTURE_PATH.stat().st_size} bytes)")

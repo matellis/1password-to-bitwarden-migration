@@ -86,6 +86,8 @@ Section field values are a single-key dict indicating the type:
 | `address` | dict | `{street, city, state, zip, country}` |
 | `gender` | str | |
 | `reference` | str | UUID of another item (file attachment reference) |
+| `file` | dict | `{documentId, fileName, decryptedSize}` — file attachment reference, resolved via `files/<documentId>___<name>` |
+| `sshKey` | dict | `{privateKey, metadata: {privateKey, publicKey, fingerprint, keyType}}` — real value in `metadata`, top-level `privateKey` is a fallback |
 
 Unknown keys are fallen back to `str()` and stored as text custom fields.
 

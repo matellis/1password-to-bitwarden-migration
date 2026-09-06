@@ -14,19 +14,20 @@ from typing import Any
 CATEGORY_TO_BW_TYPE: dict[str, int] = {
     "001": 1,
     "005": 1,
-    "111": 1,
-    "002": 2,
-    "003": 3,
+    "112": 1,
+    "002": 3,
+    "003": 2,
     "004": 4,
     "006": 2,
-    "112": 5,
+    "114": 5,
 }
 
-_LOGIN_CATEGORIES = {"001", "005", "111"}
-_CARD_CATEGORY = "003"
+_LOGIN_CATEGORIES = {"001", "005", "112"}
+_CARD_CATEGORY = "002"
 _IDENTITY_CATEGORY = "004"
 _DOCUMENT_CATEGORY = "006"
-_SSH_CATEGORY = "112"
+_SSH_CATEGORY = "114"
+_API_CREDENTIAL_CATEGORY = "112"
 
 _CC_FIELD_ID_MAP = {
     "ccnum": "number",
@@ -190,7 +191,7 @@ def _convert_item(
 ) -> tuple[dict, list[Path], list[str]]:
     overview = raw.get("overview") or {}
     details = raw.get("details") or {}
-    cat = str(raw.get("categoryUuid", "002"))
+    cat = str(raw.get("categoryUuid", "003"))
     bw_type = CATEGORY_TO_BW_TYPE.get(cat, 2)
 
     if cat == _SSH_CATEGORY and not ssh_key_supported:
@@ -223,7 +224,7 @@ def _convert_item(
     oversized_fields: list[str] = []
 
     if bw_type == 1:
-        _fill_login(bw_item, overview, details, notes_parts, oversized_fields)
+        _fill_login(bw_item, overview, details, notes_parts, oversized_fields, cat)
     elif bw_type == 3:
         _fill_card(bw_item, details, notes_parts, oversized_fields)
     elif bw_type == 4:
@@ -232,6 +233,10 @@ def _convert_item(
         _fill_ssh_key(bw_item, details, notes_parts, oversized_fields)
     else:
         bw_item["secureNote"] = {"type": 0}
+        if cat == _SSH_CATEGORY:
+            _fill_ssh_key(bw_item, details, notes_parts, oversized_fields, fallback=True)
+        else:
+            _fill_secure_note_fields(bw_item, details, notes_parts, oversized_fields)
 
     if cat == _DOCUMENT_CATEGORY:
         doc_attrs = details.get("documentAttributes") or {}
@@ -251,7 +256,7 @@ def _convert_item(
 
 def _fill_login(
     bw_item: dict, overview: dict, details: dict, notes_parts: list[str],
-    oversized_fields: list[str],
+    oversized_fields: list[str], cat: str = "",
 ) -> None:
     username = ""
     password = ""
@@ -279,10 +284,17 @@ def _fill_login(
         section_title = section.get("title") or ""
         for f in section.get("fields") or []:
             ftype, fval = _extract_typed_value(f.get("value"))
-            if ftype == "reference":
+            if ftype in ("reference", "file"):
                 continue
             if ftype == "totp" and not totp:
                 totp = str(fval) if fval is not None else ""
+                continue
+            field_id = f.get("id") or ""
+            if cat == _API_CREDENTIAL_CATEGORY and field_id == "username" and not username:
+                username = str(fval) if fval is not None else ""
+                continue
+            if cat == _API_CREDENTIAL_CATEGORY and field_id == "credential" and not password:
+                password = str(fval) if fval is not None else ""
                 continue
             field_name = _field_display_name(section_title, f.get("title") or "")
             bw_field = _make_bw_field(field_name, fval, ftype, notes_parts, item_name, oversized_fields)
@@ -385,35 +397,67 @@ def _fill_identity(
 
 def _fill_ssh_key(
     bw_item: dict, details: dict, notes_parts: list[str], oversized_fields: list[str],
+    fallback: bool = False,
 ) -> None:
     private_key = ""
     public_key = ""
     fingerprint = ""
     item_name = bw_item["name"]
+    other_fields: list[dict] = []
 
     for section in details.get("sections") or []:
+        section_title = section.get("title") or ""
         for f in section.get("fields") or []:
-            field_id = (f.get("id") or "").lower()
             ftype, fval = _extract_typed_value(f.get("value"))
-            val = str(fval) if fval is not None else ""
-            if "private" in field_id:
-                private_key = val
-            elif "public" in field_id:
-                public_key = val
-            elif "fingerprint" in field_id:
-                fingerprint = val
-            elif val:
-                bw_field = _make_bw_field(
-                    f.get("title") or field_id, fval, ftype, notes_parts, item_name, oversized_fields,
-                )
+            if ftype == "sshKey" and isinstance(fval, dict):
+                meta = fval.get("metadata")
+                if not isinstance(meta, dict):
+                    meta = {}
+                private_key = meta.get("privateKey") or fval.get("privateKey") or ""
+                public_key = meta.get("publicKey") or ""
+                fingerprint = meta.get("fingerprint") or ""
+                continue
+            if fval is None:
+                continue
+            field_name = _field_display_name(section_title, f.get("title") or "")
+            bw_field = _make_bw_field(field_name, fval, ftype, notes_parts, item_name, oversized_fields)
+            if bw_field:
+                other_fields.append(bw_field)
+
+    if fallback:
+        for name, value in (
+            ("Private Key", private_key),
+            ("Public Key", public_key),
+            ("Key Fingerprint", fingerprint),
+        ):
+            if value:
+                bw_field = _make_bw_field(name, value, "concealed", notes_parts, item_name, oversized_fields)
                 if bw_field:
                     bw_item["fields"].append(bw_field)
+        bw_item["fields"].extend(other_fields)
+    else:
+        bw_item["sshKey"] = {
+            "privateKey": private_key or None,
+            "publicKey": public_key or None,
+            "keyFingerprint": fingerprint or None,
+        }
+        bw_item["fields"].extend(other_fields)
 
-    bw_item["sshKey"] = {
-        "privateKey": private_key or None,
-        "publicKey": public_key or None,
-        "keyFingerprint": fingerprint or None,
-    }
+
+def _fill_secure_note_fields(
+    bw_item: dict, details: dict, notes_parts: list[str], oversized_fields: list[str],
+) -> None:
+    item_name = bw_item["name"]
+    for section in details.get("sections") or []:
+        section_title = section.get("title") or ""
+        for f in section.get("fields") or []:
+            ftype, fval = _extract_typed_value(f.get("value"))
+            if fval is None:
+                continue
+            field_name = _field_display_name(section_title, f.get("title") or "")
+            bw_field = _make_bw_field(field_name, fval, ftype, notes_parts, item_name, oversized_fields)
+            if bw_field:
+                bw_item["fields"].append(bw_field)
 
 
 def _collect_reference_attachments(
@@ -427,6 +471,10 @@ def _collect_reference_attachments(
                 ref_id = str(fval)
                 if ref_id in files_map:
                     paths.append(files_map[ref_id])
+            elif ftype == "file" and isinstance(fval, dict):
+                doc_id = fval.get("documentId")
+                if doc_id and doc_id in files_map:
+                    paths.append(files_map[doc_id])
     return paths
 
 
@@ -464,7 +512,7 @@ def _make_bw_field(
 ) -> dict | None:
     if value is None:
         return None
-    if ftype == "reference":
+    if ftype in ("reference", "file", "sshKey"):
         return None
 
     if ftype in ("concealed", "totp"):
