@@ -59,6 +59,10 @@ Bitwarden's server rejects any custom field value over 5,000 characters (encrypt
 
 `lib/onepux.py` enforces safe margins under those limits (4,900 chars per field, 9,900 for notes).  A field that exceeds 4,900 chars has its full value moved into `notes` (with a pointer left in the field itself) if there's room; if notes are already full, the field is truncated in place with a marker noting the original length.  Final assembled notes over 9,900 chars are truncated with a marker.  `split.py` prints one warning line per affected field to stderr so you know which items to spot-check after import.
 
+## bw CLI collection filtering
+
+In bw 2026.8.0, `bw list items --collectionid <id> --organizationid <id>` ignores `--collectionid` and returns every item in the org; `--collectionid` alone returns the correct scoped set. `lib/bwcli.py` queries collections by `--collectionid` only for this reason.
+
 ## Collection name collisions
 
 If a Bitwarden collection with the same name already exists in the target org, `bw import` will merge items into it.  The `onExisting` policy in this tool (`refuse` by default) prevents unintended merges, but it operates on name comparison — not on collection UUID.  Use `vaultRename` in config to avoid name collisions.

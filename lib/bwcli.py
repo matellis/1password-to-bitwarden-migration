@@ -300,10 +300,12 @@ def list_org_collections(org_id: str) -> list[dict]:
 
 
 def list_items_in_collection(collection_id: str, org_id: str) -> list[dict]:
+    # bw 2026.8.0: passing --organizationid alongside --collectionid makes bw
+    # ignore --collectionid and return every org item. org_id is kept as a
+    # parameter for callers/signature stability but must not be forwarded.
     raw = _run([
         "list", "items",
         "--collectionid", collection_id,
-        "--organizationid", org_id,
         "--raw",
     ])
     return json.loads(raw) if raw.strip() else []

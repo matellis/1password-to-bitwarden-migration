@@ -122,6 +122,60 @@ def _compare_item(source: dict, live: dict, expected_attach_count: int = 0) -> l
     return diffs
 
 
+def _render_item_label(item: dict) -> str:
+    name = (item.get("name") or "").strip()
+    username = ((item.get("login") or {}).get("username") or "").strip()
+    return f"{name} ({username})" if username else name
+
+
+def _sort_key(item: dict) -> str:
+    return json.dumps(item, sort_keys=True, default=str)
+
+
+def _verify_items(
+    source_items: list[tuple[dict, int]], live_items: list[dict], policy: str
+) -> list[str]:
+    """Pair source and live items by fingerprint (not title) and report diffs.
+
+    Items that share a title but differ in username/URI/type get distinct
+    fingerprints and are never compared against each other. When a
+    fingerprint occurs N times on both sides, pair deterministically by
+    sorting each side's items and zipping them.
+    """
+    issues: list[str] = []
+
+    src_by_fp: dict[tuple, list[tuple[dict, int]]] = {}
+    for src_item, attach_count in source_items:
+        src_by_fp.setdefault(bwcli.item_fingerprint(src_item), []).append((src_item, attach_count))
+
+    live_by_fp: dict[tuple, list[dict]] = {}
+    for it in live_items:
+        live_by_fp.setdefault(bwcli.item_fingerprint(it), []).append(it)
+
+    for fp in src_by_fp.keys() | live_by_fp.keys():
+        src_list = sorted(src_by_fp.get(fp, []), key=lambda t: _sort_key(t[0]))
+        live_list = sorted(live_by_fp.get(fp, []), key=_sort_key)
+        n = min(len(src_list), len(live_list))
+
+        for (src_item, attach_count), live_item in zip(src_list[:n], live_list[:n]):
+            item_diffs = _compare_item(src_item, live_item, attach_count)
+            if item_diffs:
+                issues.append(f"Item {_render_item_label(src_item)!r} field mismatches:")
+                issues.extend(item_diffs)
+
+        if policy != "skip":
+            for src_item, _ in src_list[n:]:
+                issues.append(f"Missing: {_render_item_label(src_item)}")
+
+        for live_item in live_list[n:]:
+            if policy == "skip":
+                issues.append(f"Pre-existing item (expected under skip policy): {_render_item_label(live_item)}")
+            else:
+                issues.append(f"Unexpected live item: {_render_item_label(live_item)}")
+
+    return issues
+
+
 def _load_source_items(bulk_path: Path, attach_path: Path) -> list[tuple[dict, int]]:
     """Return (item_dict, expected_attach_count) pairs from both source files."""
     items: list[tuple[dict, int]] = []
@@ -147,19 +201,17 @@ def _verify_vault(
 ) -> tuple[bool, list[str]]:
     issues: list[str] = []
 
+    source_items = _load_source_items(bulk_path, attach_path)
+
     existing_collections = bwcli.list_org_collections(org_id)
     match = next((c for c in existing_collections if c.get("name") == collection_name), None)
     if not match:
+        if not source_items:
+            return True, [f"Collection '{collection_name}' not found, but source vault has 0 items. OK (empty vault)."]
         return False, [f"Collection '{collection_name}' not found in org."]
 
     coll_id = match["id"]
     live_items = bwcli.list_items_in_collection(coll_id, org_id)
-    live_by_name: dict[str, list[dict]] = {}
-    for it in live_items:
-        n = (it.get("name") or "").strip()
-        live_by_name.setdefault(n, []).append(it)
-
-    source_items = _load_source_items(bulk_path, attach_path)
 
     if policy == "skip" and ledger_entry:
         expected_count = ledger_entry.get("importedCount", len(source_items))
@@ -174,31 +226,7 @@ def _verify_vault(
         if live_count != expected_count:
             issues.append(f"Count: expected {expected_count}, got {live_count}")
 
-    src_title_counter = Counter((it.get("name") or "").strip() for it, _ in source_items)
-    live_title_counter = Counter((it.get("name") or "").strip() for it in live_items)
-
-    missing_titles = src_title_counter - live_title_counter
-    if missing_titles and policy != "skip":
-        issues.append(f"Missing titles: {dict(missing_titles)}")
-
-    for src_item, expected_attach_count in source_items:
-        name = (src_item.get("name") or "").strip()
-        candidates = live_by_name.get(name, [])
-        if not candidates:
-            if policy != "skip":
-                issues.append(f"Item not found: {name!r}")
-            continue
-        item_diffs = _compare_item(src_item, candidates[0], expected_attach_count)
-        if item_diffs:
-            issues.append(f"Item {name!r} field mismatches:")
-            issues.extend(item_diffs)
-
-    extra_titles = live_title_counter - src_title_counter
-    if extra_titles:
-        if policy == "skip":
-            issues.append(f"Pre-existing items in collection (expected under skip policy): {dict(extra_titles)}")
-        else:
-            issues.append(f"Unexpected live items: {dict(extra_titles)}")
+    issues.extend(_verify_items(source_items, live_items, policy))
 
     return len(issues) == 0, issues
 
@@ -220,10 +248,6 @@ def _verify_vault_personal(
 
     folder_id = match["id"]
     live_items = bwcli.list_items_in_folder(folder_id)
-    live_by_name: dict[str, list[dict]] = {}
-    for it in live_items:
-        n = (it.get("name") or "").strip()
-        live_by_name.setdefault(n, []).append(it)
 
     source_items = _load_source_items(bulk_path, attach_path)
 
@@ -240,31 +264,7 @@ def _verify_vault_personal(
         if live_count != expected_count:
             issues.append(f"Count: expected {expected_count}, got {live_count}")
 
-    src_title_counter = Counter((it.get("name") or "").strip() for it, _ in source_items)
-    live_title_counter = Counter((it.get("name") or "").strip() for it in live_items)
-
-    missing_titles = src_title_counter - live_title_counter
-    if missing_titles and policy != "skip":
-        issues.append(f"Missing titles: {dict(missing_titles)}")
-
-    for src_item, expected_attach_count in source_items:
-        name = (src_item.get("name") or "").strip()
-        candidates = live_by_name.get(name, [])
-        if not candidates:
-            if policy != "skip":
-                issues.append(f"Item not found: {name!r}")
-            continue
-        item_diffs = _compare_item(src_item, candidates[0], expected_attach_count)
-        if item_diffs:
-            issues.append(f"Item {name!r} field mismatches:")
-            issues.extend(item_diffs)
-
-    extra_titles = live_title_counter - src_title_counter
-    if extra_titles:
-        if policy == "skip":
-            issues.append(f"Pre-existing items in folder (expected under skip policy): {dict(extra_titles)}")
-        else:
-            issues.append(f"Unexpected live items: {dict(extra_titles)}")
+    issues.extend(_verify_items(source_items, live_items, policy))
 
     return len(issues) == 0, issues
 
@@ -284,7 +284,9 @@ def _op_check(pux_path: Path, account_name: str, op_account: str | None = None) 
     for vault in vault_list:
         attrs = vault.get("attrs") or {}
         vault_name = attrs.get("name", "?")
-        expected = len(vault.get("items") or [])
+        # op item list excludes archived-state items; match that on the 1pux side.
+        active_items = [it for it in (vault.get("items") or []) if it.get("state", "active") != "archived"]
+        expected = len(active_items)
 
         argv = [op, "item", "list", "--vault", vault_name, "--format", "json"]
         if op_account:
@@ -301,6 +303,17 @@ def _op_check(pux_path: Path, account_name: str, op_account: str | None = None) 
             live_count = len(live_items)
             match = "OK" if live_count == expected else "MISMATCH"
             print(f"    {vault_name}: 1pux={expected}, op live={live_count} [{match}]")
+            if live_count != expected:
+                expected_titles = Counter(
+                    (it.get("overview") or {}).get("title") or "Untitled" for it in active_items
+                )
+                live_titles = Counter((it.get("title") or "").strip() for it in live_items)
+                missing = expected_titles - live_titles
+                extra = live_titles - expected_titles
+                if missing:
+                    print(f"      missing from op: {dict(missing)}")
+                if extra:
+                    print(f"      unexpected in op: {dict(extra)}")
         except Exception as e:
             print(f"    {vault_name}: op check failed — {e}")
 
