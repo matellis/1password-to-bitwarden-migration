@@ -198,14 +198,11 @@ python3 verify.py --personal --account me-family
 
 Desktop `.1pux` exports contain no passkey credentials — this is confirmed by 1Password and by `passkeys.py --from-pux` scanning real exports.  The 1Password CLI (`op`) does not expose passkeys either — re-verified against op 2.39.0: items confirmed to hold a passkey (via the app's `=passkey` search) show no passkey field, flag, or null placeholder in `op item list` or `op item get`.  There is no automated way to discover which items have passkeys; the inventory below is built by hand.
 
-Two ways to close the gap (see docs/DECISIONS.md for why):
+Two options, plus the default (see docs/DECISIONS.md for why):
 
-**Option A — re-register per site (recommended for tens of passkeys).**  The script route has already migrated each item's password, so there is no lockout risk.  No file, no tooling:
+**Default — do nothing.**  Let the passkeys go.  The script route has already migrated each item's password, so when someone next visits a site whose passkey is missing, they log in with the password and save a fresh passkey to Bitwarden right there.  No inventory, no checklist, no coordination — re-enrollment happens opportunistically as people naturally use their accounts.  This is the recommended path for most migrations.
 
-1. In the 1Password app, search `=passkey` — that live search IS the checklist (each person works their own vaults on their own device).
-2. For each item: log into the site with the password, open its security settings, add a passkey, save it to Bitwarden when prompted.  Budget 1–3 minutes per site.
-3. Then delete the passkey from the 1Password item (one tap, same screen).  Passkeys are designed for multiple enrollments per account, so the item keeps working throughout — and the item drops out of the `=passkey` search.
-4. When `=passkey` returns zero results, you are done — that is the verification.  Optional belt-and-braces: `passkeys.py --from-bitwarden` lists what actually landed.
+**Option A — systematic re-registration (only if someone insists on completeness).**  Search `=passkey` in the 1Password app — that live search is the checklist (each person works their own vaults on their own device).  For each item: log into the site with the password, add a passkey, save it to Bitwarden, then delete the passkey from the 1Password item so it drops out of the search.  When `=passkey` returns zero, you are done.
 
 **Option B — CXP transfer (for hundreds of passkeys, or passwordless-only accounts).**  iOS 26 Credential Exchange moves passkey private keys app-to-app with no plaintext file; Bitwarden's iOS app receives transfers natively, so no intermediary app is required.  Costs: per-vault visibility scoping on 1password.com, community-reported failures on large vaults, and duplicates to reconcile afterwards (`adopt.py` or manual deletion).  If an account is truly passwordless-only (no password fallback), CXP is the only non-recovery route — identify those from the `=passkey` search before choosing.
 
@@ -255,9 +252,9 @@ python3 passkeys.py --account family --from-bitwarden
 
 This reads `bw list items` and reports login items whose `fido2Credentials` field is non-empty.  Run after re-registration or CXP transfers to verify passkeys arrived in Bitwarden.
 
-### 10. If users skip the passkey step
+### 10. Optional: tracking passkeys
 
-Some users will complete the script route and never re-register or transfer their passkeys.  Their passkeys are silently absent in Bitwarden.  Three tools make this visible and recoverable.
+With the default passkey stance (step 9: do nothing, re-enroll opportunistically), none of this section applies — it exists for migrations that deliberately want item-level tracking.  Without tracking, passkeys are silently absent in Bitwarden after migration, by design.  Three tools make the gap visible and recoverable for those who want that.
 
 **Markers in the imported items** — run split.py with a passkey inventory and every affected login will have a notice in its notes field:
 
