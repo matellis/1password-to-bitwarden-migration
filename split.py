@@ -11,6 +11,14 @@ zip land in work/<account>/files/ and are referenced by path in attachments.json
 
 --personal mode processes ONLY Private (type P) vaults and emits folder-based
 import JSON suitable for import into My vault (no org required).
+
+Every non-skipped vault needs a vaultDestination entry in config.json (shared,
+owner-only, or personal). When a vault is missing one, split.py writes a guess
+into config.json for the user to confirm: "shared" if the vault name contains
+"shared", "personal" if it contains "private" or "personal", otherwise "" (no
+guess). Existing entries, including deliberately blank ones, are never
+overwritten. Org mode still exits non-zero so the user reviews the guesses
+before re-running; personal mode warns and skips the vault instead.
 """
 
 from __future__ import annotations
@@ -27,6 +35,28 @@ from lib import onepux
 from lib import passkey_inventory as pkinv
 
 SSH_KEY_SUPPORTED = True
+
+VALID_DESTINATIONS = {"shared", "owner-only", "personal"}
+
+
+def _guess_vault_destination(name: str) -> str:
+    """Guess a vaultDestination value from a vault name (case-insensitive substring match).
+
+    Returns 'shared' if the name contains 'shared', 'personal' if it contains
+    'private' or 'personal', otherwise '' (no confident guess).
+    """
+    lower = name.lower()
+    if "shared" in lower:
+        return "shared"
+    if "private" in lower or "personal" in lower:
+        return "personal"
+    return ""
+
+
+def _write_config(config_path: Path, config: dict) -> None:
+    with open(config_path, "w") as f:
+        json.dump(config, f, indent=2)
+        f.write("\n")
 
 
 def _load_config(config_path: Path) -> dict:
@@ -64,7 +94,7 @@ def _check_vault_destinations(
     skip_vault_types: set[str],
     vault_destination: dict[str, str],
 ) -> list[str]:
-    """Return original names of non-skipped vaults that lack a destination classification."""
+    """Return original names of non-skipped vaults that lack a valid destination classification."""
     unclassified = []
     for vault in vault_list:
         attrs = vault.get("attrs") or {}
@@ -72,7 +102,7 @@ def _check_vault_destinations(
         vault_name = attrs.get("name", attrs.get("uuid", "vault"))
         if vault_type in skip_vault_types:
             continue
-        if vault_name not in vault_destination:
+        if vault_destination.get(vault_name) not in VALID_DESTINATIONS:
             unclassified.append(vault_name)
     return unclassified
 
@@ -82,7 +112,7 @@ def _check_vault_destinations_personal(
     vault_rename: dict[str, str],
     vault_destination: dict[str, str],
 ) -> list[str]:
-    """Return original names of non-P vaults in a personal-mode account that lack a destination."""
+    """Return original names of non-P vaults in a personal-mode account that lack a valid destination."""
     unclassified = []
     for vault in vault_list:
         attrs = vault.get("attrs") or {}
@@ -90,13 +120,14 @@ def _check_vault_destinations_personal(
         vault_name = attrs.get("name", attrs.get("uuid", "vault"))
         if vault_type == "P":
             continue
-        if vault_name not in vault_destination:
+        if vault_destination.get(vault_name) not in VALID_DESTINATIONS:
             unclassified.append(vault_name)
     return unclassified
 
 
 def _process_account(account: dict, work_dir: Path, include_archived: bool,
-                     inventory: list[dict] | None = None) -> list[dict]:
+                     inventory: list[dict] | None = None,
+                     config: dict | None = None, config_path: Path | None = None) -> list[dict]:
     pux_path = Path(account["puxPath"])
     if not pux_path.exists():
         sys.exit(f"Export file not found: {pux_path}")
@@ -115,13 +146,23 @@ def _process_account(account: dict, work_dir: Path, include_archived: bool,
         vault_list, vault_rename, skip_vault_types, vault_destination
     )
     if unclassified:
-        names = ", ".join(f'"{n}"' for n in unclassified)
-        example = json.dumps(
-            {"vaultDestination": {unclassified[0]: "shared"}}, indent=2
-        )
+        lines = []
+        added_any = False
+        for name in unclassified:
+            if name in vault_destination:
+                lines.append(f'  "{name}": needs a value filled in')
+            else:
+                guess = _guess_vault_destination(name)
+                vault_destination[name] = guess
+                added_any = True
+                lines.append(f'  "{name}": {guess if guess else "(blank)"}')
+        account["vaultDestination"] = vault_destination
+        if added_any and config is not None and config_path is not None:
+            _write_config(config_path, config)
         sys.exit(
-            f"Account '{account.get('name', '?')}': unclassified vaults: {names}\n"
-            f"Add each vault to vaultDestination in config.json. Example:\n{example}\n"
+            f"Account '{account.get('name', '?')}': unclassified vaults — config.json updated:\n"
+            + "\n".join(lines) + "\n"
+            f"Review/confirm vaultDestination for this account in config.json, then re-run.\n"
             f"Valid destinations: shared, owner-only, personal"
         )
 
@@ -198,7 +239,8 @@ def _process_account(account: dict, work_dir: Path, include_archived: bool,
 
 
 def _process_account_personal(account: dict, work_dir: Path, include_archived: bool,
-                              inventory: list[dict] | None = None) -> list[dict]:
+                              inventory: list[dict] | None = None,
+                              config: dict | None = None, config_path: Path | None = None) -> list[dict]:
     pux_path = Path(account["puxPath"])
     if not pux_path.exists():
         sys.exit(f"Export file not found: {pux_path}")
@@ -212,12 +254,28 @@ def _process_account_personal(account: dict, work_dir: Path, include_archived: b
     vault_list = onepux.vaults(export_data)
 
     unclassified = _check_vault_destinations_personal(vault_list, vault_rename, vault_destination)
+    added_any = False
     for n in unclassified:
-        print(
-            f"  [{account.get('name', '?')}] Warning: vault {n!r} has no vaultDestination"
-            f" in personal mode — skipped (org mode handles it).",
-            file=sys.stderr,
-        )
+        if n in vault_destination:
+            print(
+                f"  [{account.get('name', '?')}] Warning: vault {n!r} needs a value filled in"
+                f" for vaultDestination in config.json — skipped (org mode handles it).",
+                file=sys.stderr,
+            )
+        else:
+            guess = _guess_vault_destination(n)
+            vault_destination[n] = guess
+            added_any = True
+            label = guess if guess else "(blank)"
+            print(
+                f"  [{account.get('name', '?')}] Warning: vault {n!r} has no vaultDestination"
+                f" in personal mode — skipped (org mode handles it); added to config.json as {label}.",
+                file=sys.stderr,
+            )
+    if added_any:
+        account["vaultDestination"] = vault_destination
+        if config is not None and config_path is not None:
+            _write_config(config_path, config)
 
     manifest_entries: list[dict] = []
 
@@ -364,7 +422,8 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    config = _load_config(Path(args.config))
+    config_path = Path(args.config)
+    config = _load_config(config_path)
     accounts = config.get("accounts", [])
 
     if not accounts:
@@ -394,12 +453,16 @@ def main() -> None:
         work_dir = _make_work_dir(name)
 
         if personal:
-            entries = _process_account_personal(account, work_dir, args.include_archived, inventory)
+            entries = _process_account_personal(
+                account, work_dir, args.include_archived, inventory, config, config_path
+            )
             if not entries:
                 print(f"\nAccount: {name} — no Private (type P) vaults found in this export.")
                 continue
         else:
-            entries = _process_account(account, work_dir, args.include_archived, inventory)
+            entries = _process_account(
+                account, work_dir, args.include_archived, inventory, config, config_path
+            )
 
         manifest_all[name] = entries
         _write_secure(work_dir / "manifest.json", entries)

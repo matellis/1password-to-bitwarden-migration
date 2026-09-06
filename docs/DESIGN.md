@@ -58,7 +58,7 @@ Three tools make the passkey gap visible and recoverable after the script route 
 
 1Password uses vault type as a rough privacy signal (type P = Private, visible only to the owner) but user-created vaults (type U, E, etc.) may also be owner-only in practice — the `.1pux` format carries no ACL data.  Routing every non-P vault to an org collection without asking would silently expose owner-only content to org members.
 
-The tool therefore requires an explicit destination declaration for every non-Private vault via the `vaultDestination` config key.  `split.py` and `import.py` refuse with a clear error listing the unclassified vault names if any non-P vault lacks a declaration.  Type P always routes personal (safe default); everything else is the user's decision.
+The tool therefore requires an explicit destination declaration for every non-Private vault via the `vaultDestination` config key.  When `split.py` finds a non-P vault lacking a declaration, it writes a guess into `config.json` (`"shared"` if the vault name contains "shared", `"personal"` if it contains "private" or "personal", otherwise `""`), then org mode exits with a clear error asking the user to review and confirm the written value; `import.py` refuses the same way if the manifest still carries no destination.  Existing entries, including deliberately blank ones, are never overwritten. Type P always routes personal (safe default); everything else is the user's decision.
 
 Three destinations are supported:
 

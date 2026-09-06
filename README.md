@@ -97,7 +97,7 @@ JSON has no comment syntax, so the key serves as its own documentation.  Omittin
 
 **`vaultDestination` — your privacy decision**
 
-Every non-Private vault must be explicitly classified.  The tool refuses to guess.  `split.py` will list any unclassified vault names and show an example snippet.
+Every non-Private vault must be explicitly classified.  When `split.py` finds an unclassified vault, it writes a guess into `config.json` for you to confirm: `"shared"` if the vault name contains "shared", `"personal"` if it contains "private" or "personal", otherwise an empty string.  Existing entries — including ones you deliberately left blank — are never overwritten.  Org mode still exits non-zero after writing so you can review the guesses in `config.json` before re-running; personal mode warns and skips instead.
 
 | Destination | Meaning |
 | --- | --- |

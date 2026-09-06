@@ -168,8 +168,9 @@ script route. See the passkey handoff screen."
 The destination column shows the classification for each vault (shared, owner-only,
 personal).  Vaults with no classification are flagged in red with a prompt to open
 the vault mapping sheet (see Screen 3) and assign a destination before proceeding.
-`split.py` refuses with a non-zero exit if any non-Private vault is unclassified, so
-the "Start Import" button stays disabled until all vaults have a declared destination.
+`split.py` writes a guessed destination into config.json for any unclassified non-Private
+vault and still exits non-zero, so the "Start Import" button stays disabled until the
+guess has been reviewed (or a blank entry filled in) for every vault.
 
 A disclosure triangle per vault row expands to the item-type breakdown (logins, secure
 notes, cards, identities, SSH keys, documents).
