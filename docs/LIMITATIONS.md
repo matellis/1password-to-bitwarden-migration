@@ -4,6 +4,8 @@
 
 Desktop `.1pux` exports contain no passkey credentials.  This is confirmed in 1Password's own documentation and verified empirically: scanning a large export for any key or value matching `passkey`, `webauthn`, or `fido` returns zero hits on passkey data.  The 1Password CLI (`op`) also does not expose passkeys — the `op item get` JSON schema has no passkey field, and `op` item templates do not support passkeys.
 
+Re-verified against op 2.39.0 (2026-09-05): for items confirmed to hold a passkey via the app's `=passkey` search, neither `op item list` nor `op item get` shows any passkey indicator — no field, no flag, not even a null placeholder.  Building the passkey inventory therefore remains a manual step (the `=passkey` search in the app, transcribed); `op` can only help enrich an inventory with usernames/URLs, not discover it.
+
 There is no desktop file export path for passkeys.  Passkeys are transferable via iOS 26 Credential Exchange (CXP) using the Single-Vault Pipeline described in README.md step 9.  That pipeline is also the only route that moves passkeys without per-site re-registration.
 
 **Transfer options:**
