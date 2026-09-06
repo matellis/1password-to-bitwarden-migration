@@ -569,6 +569,7 @@ def main() -> None:
 
     print("import.py — Bitwarden per-vault import")
 
+    all_failures: list[tuple[str, str, str]] = []
     for account in accounts:
         name = account.get("name", "unknown")
         server = account.get("bitwardenServer", "us")
@@ -613,17 +614,39 @@ def main() -> None:
                 print(f"  Vault '{args.vault}' not in manifest.")
                 continue
 
+        failures: list[tuple[str, str]] = []
         for vault_entry in vaults_to_process:
             if personal:
                 if not vault_entry.get("personal"):
                     continue
-                _import_vault_personal(account, vault_entry, work_dir, ledger, args.yes, args.force)
+                try:
+                    _import_vault_personal(account, vault_entry, work_dir, ledger, args.yes, args.force)
+                except Exception as e:
+                    vname = vault_entry["vaultName"]
+                    print(f"  [{vname}] FAILED: {e}")
+                    ledger["failures"][vname] = [{"error": str(e)}]
+                    failures.append((vname, str(e)))
             else:
                 if vault_entry.get("personal"):
                     continue
-                result = _import_vault(account, vault_entry, work_dir, ledger, args.yes, args.force)
-                _post_import_notices(vault_entry, result.get("status"))
+                try:
+                    result = _import_vault(account, vault_entry, work_dir, ledger, args.yes, args.force)
+                except Exception as e:
+                    vname = vault_entry["vaultName"]
+                    print(f"  [{vname}] FAILED: {e}")
+                    ledger["failures"][vname] = [{"error": str(e)}]
+                    failures.append((vname, str(e)))
+                else:
+                    _post_import_notices(vault_entry, result.get("status"))
             _save_ledger(name, ledger, personal)
+        all_failures.extend((name, v, e) for v, e in failures)
+
+    if all_failures:
+        print("\nFAILURES — these vaults did not import:")
+        for account_name, vault_name, error in all_failures:
+            print(f"  [{account_name} / {vault_name}] {error}")
+        print("\nFix the cause and re-run; completed vaults are skipped from the ledger.")
+        sys.exit(1)
 
     print("\nDone. Run verify.py to confirm the migration.")
 
