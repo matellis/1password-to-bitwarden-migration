@@ -25,6 +25,7 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).parent))
 from lib import bwcli, onepux
+import archived as archived_mod
 
 
 def _load_json(path: Path) -> Any:
@@ -176,6 +177,11 @@ def _verify_items(
     return issues
 
 
+def _drop_archived(items: list[dict]) -> list[dict]:
+    """Ignore items brought over by archived.py (source files hold live items only)."""
+    return [it for it in items if not archived_mod.is_archived_live_item(it)]
+
+
 def _load_source_items(bulk_path: Path, attach_path: Path) -> list[tuple[dict, int]]:
     """Return (item_dict, expected_attach_count) pairs from both source files."""
     items: list[tuple[dict, int]] = []
@@ -211,7 +217,7 @@ def _verify_vault(
         return False, [f"Collection '{collection_name}' not found in org."]
 
     coll_id = match["id"]
-    live_items = bwcli.list_items_in_collection(coll_id, org_id)
+    live_items = _drop_archived(bwcli.list_items_in_collection(coll_id, org_id))
 
     if policy == "skip" and ledger_entry:
         expected_count = ledger_entry.get("importedCount", len(source_items))
@@ -247,7 +253,7 @@ def _verify_vault_personal(
         return False, [f"Folder '{folder_name}' not found in My vault."]
 
     folder_id = match["id"]
-    live_items = bwcli.list_items_in_folder(folder_id)
+    live_items = _drop_archived(bwcli.list_items_in_folder(folder_id))
 
     source_items = _load_source_items(bulk_path, attach_path)
 

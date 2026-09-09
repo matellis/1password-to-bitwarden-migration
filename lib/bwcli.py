@@ -397,6 +397,15 @@ def edit_item(item_id: str, item: dict) -> dict:
     return json.loads(raw)
 
 
+def archive_item(item_id: str) -> None:
+    """Move an item to the vault Archive (bw >= 2025.x: `bw archive item <id>`).
+
+    Raises BWError when the server refuses (Archive requires a
+    premium-enabled account).
+    """
+    _run(["archive", "item", item_id])
+
+
 def delete_item(item_id: str) -> None:
     """Move an item to trash (soft delete). Use --permanent flag explicitly to hard-delete."""
     _run(["delete", "item", item_id])

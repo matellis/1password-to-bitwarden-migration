@@ -14,6 +14,7 @@ Bitwarden's own JSON importer collapses all vaults into a flat collection (open 
 - File attachments and document items
 - Tags (appended to notes — Bitwarden org items have no native tags)
 - Password history (best effort)
+- Archived items, as a separate opt-in step after import (`archived.py`)
 
 ## What it does not migrate
 
@@ -160,6 +161,18 @@ python3 verify.py --account family
 ```
 
 Compares source 1pux data field-by-field against live Bitwarden data.  Exits 0 on full pass.
+
+### 6a. Optional: archived items
+
+`split.py` and `import.py` leave 1Password *archived* items behind.  To bring them over into Bitwarden's Archive, run this after a passing verify:
+
+```bash
+python3 archived.py --account family --dry-run   # list what would be created
+python3 archived.py --account family             # create + archive
+python3 archived.py --account me-family --personal
+```
+
+Each archived item is created in the same collection or folder as its vault, then `bw archive item` is run on it.  If the server refuses to archive an item (Archive needs a premium-enabled account; some org/plan combinations may also refuse), the item is renamed with an `[archived] ` prefix instead and get "Archived in 1Password." at the top of their notes.  Items already present are skipped, so the step is safe to re-run.  `verify.py` ignores items created by this step.
 
 ### 7. Invite users and assign permissions
 
