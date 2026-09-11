@@ -59,6 +59,47 @@ class TestHelpers(unittest.TestCase):
         self.assertFalse(archived.is_archived_live_item({"name": "x", "archivedDate": None}))
 
 
+class TestClamp(unittest.TestCase):
+    def test_long_field_and_notes_trimmed(self):
+        item = {"fields": [{"name": "big", "value": "x" * 6000}, {"name": "ok", "value": "y"}],
+                "notes": "n" * 12000}
+        trimmed = archived.clamp_for_create(item)
+        self.assertEqual(trimmed, ["big", "notes"])
+        self.assertTrue(item["fields"][0]["value"].endswith(archived._TRIM_MARK))
+        self.assertLess(len(item["fields"][0]["value"]), 3700)
+        self.assertLess(len(item["notes"]), 7200)
+        self.assertEqual(item["fields"][1]["value"], "y")
+
+    def test_short_item_untouched(self):
+        item = {"fields": [{"name": "a", "value": "b"}], "notes": "c"}
+        self.assertEqual(archived.clamp_for_create(item), [])
+        self.assertEqual(item["notes"], "c")
+
+
+class TestDedupe(unittest.TestCase):
+    def test_find_duplicates_keeps_oldest(self):
+        a = {"id": "a", "type": 1, "name": "X", "login": {"username": "u", "uris": []}, "creationDate": "2026-01-01"}
+        b = {"id": "b", "type": 1, "name": "X", "login": {"username": "u", "uris": []}, "creationDate": "2026-02-01"}
+        c = {"id": "c", "type": 1, "name": "Y", "login": {"username": "u", "uris": []}, "creationDate": "2026-02-01"}
+        extras = archived.find_duplicates([b, a, c])
+        self.assertEqual([e["id"] for e in extras], ["b"])
+
+    @patch.object(bwcli, "sync")
+    @patch.object(bwcli, "list_folders", return_value=[{"id": "f1", "name": "Work"}])
+    @patch.object(bwcli, "delete_item")
+    def test_dedupe_vault_trashes_newer(self, delete, *_):
+        items = [
+            {"id": "a", "type": 1, "name": "X", "login": {"username": "u", "uris": []}, "creationDate": "1", "folderId": "f1", "archivedDate": "1"},
+            {"id": "b", "type": 1, "name": "X", "login": {"username": "u", "uris": []}, "creationDate": "2", "folderId": "f1", "archivedDate": "2"},
+            {"id": "z", "type": 1, "name": "X", "login": {"username": "u", "uris": []}, "creationDate": "0", "folderId": "other", "archivedDate": "0"},
+        ]
+        with patch.object(bwcli, "list_archived_items", return_value=items):
+            n = archived.dedupe_vault("Work", True, None, False)
+        self.assertEqual(n, 1)
+        delete.assert_called_once_with("b")
+
+
+@patch.object(bwcli, "list_archived_items", return_value=[])
 class TestProcessVault(unittest.TestCase):
     def _entries(self):
         data = _export("Work", [_raw("Old", "archived")])
@@ -88,6 +129,18 @@ class TestProcessVault(unittest.TestCase):
         self.assertEqual(create.call_args[0][0]["folderId"], "f1")
         self.assertIsNone(create.call_args[0][0]["organizationId"])
         arch.assert_called_once_with("i1")
+
+    @patch.object(bwcli, "sync")
+    @patch.object(bwcli, "list_folders", return_value=[{"id": "f1", "name": "Work"}])
+    @patch.object(bwcli, "list_items_in_folder", return_value=[])
+    @patch.object(bwcli, "create_personal_item")
+    def test_skips_item_already_archived(self, create, *_):
+        arch = [{"type": 1, "name": "Old", "folderId": "f1", "organizationId": None, "archivedDate": "x",
+                 "login": {"username": "u", "uris": [{"uri": "https://x.example"}]}}]
+        with patch.object(bwcli, "list_archived_items", return_value=arch):
+            r = archived.process_vault("Work", self._entries(), True, None, False)
+        self.assertEqual(r["counts"]["skipped"], 1)
+        create.assert_not_called()
 
     @patch.object(bwcli, "sync")
     @patch.object(bwcli, "list_folders", return_value=[{"id": "f1", "name": "Work"}])

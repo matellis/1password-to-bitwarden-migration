@@ -370,6 +370,16 @@ def list_all_items() -> list[dict]:
     return json.loads(raw) if raw.strip() else []
 
 
+def list_archived_items() -> list[dict]:
+    """All archived items visible to this user (bw hides them from plain `list items`).
+
+    `--archived` cannot be ANDed with --folderid/--collectionid (bw ORs multiple
+    filters), so callers filter by folderId / collectionIds themselves.
+    """
+    raw = _run(["list", "items", "--archived", "--raw"])
+    return json.loads(raw) if raw.strip() else []
+
+
 def fingerprints_in_folder(folder_id: str) -> set[tuple]:
     items = list_items_in_folder(folder_id)
     return {item_fingerprint(it) for it in items}

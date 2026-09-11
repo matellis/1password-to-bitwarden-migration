@@ -12,8 +12,10 @@ runs after a successful import and handles only those items:
      account; some org/plan combinations may refuse), the item is renamed with an
      "[archived] " prefix instead so it is still recognisable.
 
-Items already present (matched by fingerprint, with or without the prefix)
-are skipped, so the step is safe to re-run.  --dry-run prints the plan only.
+Items already present (matched by fingerprint against live *and* archived
+items, with or without the prefix) are skipped, so the step is safe to re-run.
+--dry-run prints the plan only.  --dedupe trashes newer duplicate archived
+items in each folder/collection, keeping the oldest copy.
 
 Usage:
   python3 archived.py --account NAME [--personal] [--vault NAME] [--dry-run]
@@ -34,6 +36,33 @@ from lib import bwcli, onepux
 
 ARCHIVED_PREFIX = "[archived] "
 ARCHIVED_NOTE = "Archived in 1Password."
+
+# `bw create item` enforces the server's *encrypted* size limits (5000 for a
+# field value, 10000 for notes).  Encryption plus base64 inflates plaintext by
+# roughly 1.4x, so plaintext is clamped well below the limits.  The bulk
+# `bw import` path used for live items is more lenient, which is why these
+# tighter limits live here and not in onepux.
+_CREATE_FIELD_LIMIT = 3500
+_CREATE_NOTES_LIMIT = 7000
+_TRIM_MARK = "…[trimmed to fit Bitwarden's encrypted size limit]"
+
+
+def clamp_for_create(item: dict) -> list[str]:
+    """Trim custom field values and notes so `bw create item` accepts them.
+
+    Returns the names of fields that were trimmed (for reporting).
+    """
+    trimmed: list[str] = []
+    for f in item.get("fields") or []:
+        v = f.get("value")
+        if isinstance(v, str) and len(v) > _CREATE_FIELD_LIMIT:
+            f["value"] = v[:_CREATE_FIELD_LIMIT] + _TRIM_MARK
+            trimmed.append(f.get("name") or "?")
+    notes = item.get("notes")
+    if isinstance(notes, str) and len(notes) > _CREATE_NOTES_LIMIT:
+        item["notes"] = notes[:_CREATE_NOTES_LIMIT] + _TRIM_MARK
+        trimmed.append("notes")
+    return trimmed
 
 
 def _load_json(path: Path) -> Any:
@@ -109,6 +138,60 @@ def collect_archived(export_data: dict, files_map: dict, manifest: list[dict],
     return out
 
 
+def _archived_in_target(target_id: str, personal: bool) -> list[dict]:
+    """Archived items in a folder (personal) or collection (org).
+
+    Plain `bw list items` omits archived items, which is exactly what makes a
+    re-run see them as missing and create duplicates.
+    """
+    out = []
+    for it in bwcli.list_archived_items():
+        if personal:
+            if it.get("folderId") == target_id and not it.get("organizationId"):
+                out.append(it)
+        elif target_id in (it.get("collectionIds") or []):
+            out.append(it)
+    return out
+
+
+def find_duplicates(items: list[dict]) -> list[dict]:
+    """Return the newer copies among items sharing a fingerprint (oldest is kept)."""
+    by_fp: dict[tuple, list[dict]] = {}
+    for it in items:
+        by_fp.setdefault(bwcli.item_fingerprint(it), []).append(it)
+    extras: list[dict] = []
+    for group in by_fp.values():
+        if len(group) < 2:
+            continue
+        group.sort(key=lambda it: (it.get("creationDate") or "", it.get("id") or ""))
+        extras.extend(group[1:])
+    return extras
+
+
+def dedupe_vault(vault_name: str, personal: bool, org_id: str | None, dry_run: bool) -> int:
+    """Trash newer duplicate *archived* items in one folder/collection.  Returns count."""
+    bwcli.sync()
+    if personal:
+        match = next((f for f in bwcli.list_folders() if f.get("name") == vault_name), None)
+    else:
+        match = next((c for c in bwcli.list_org_collections(org_id or "") if c.get("name") == vault_name), None)
+    if not match:
+        print(f"  [{vault_name}] target not found in Bitwarden.")
+        return 0
+    archived_items = _archived_in_target(match["id"], personal)
+    extras = find_duplicates(archived_items)
+    for it in extras:
+        label = it.get("name") or "?"
+        if dry_run:
+            print(f"  [{vault_name}] would trash duplicate: {label}")
+        else:
+            bwcli.delete_item(it["id"])
+            print(f"  [{vault_name}] trashed duplicate: {label}")
+    print(f"  [{vault_name}] {len(archived_items)} archived, {len(extras)} duplicate(s)"
+          f"{' would be' if dry_run else ''} trashed.")
+    return len(extras)
+
+
 def _existing_fps(items: list[dict]) -> set[tuple]:
     fps: set[tuple] = set()
     for it in items:
@@ -161,7 +244,7 @@ def process_vault(vault_name: str, entries: list[dict], personal: bool,
             print(f"  [{vault_name}] Folder not found in Bitwarden — run import.py first.")
             return {"status": "no_target", "counts": counts}
         target_id = match["id"]
-        live = bwcli.list_items_in_folder(target_id)
+        live = bwcli.list_items_in_folder(target_id) + _archived_in_target(target_id, personal=True)
     else:
         bwcli.sync()
         colls = bwcli.list_org_collections(org_id or "")
@@ -170,7 +253,7 @@ def process_vault(vault_name: str, entries: list[dict], personal: bool,
             print(f"  [{vault_name}] Collection not found in Bitwarden — run import.py first.")
             return {"status": "no_target", "counts": counts}
         target_id = match["id"]
-        live = bwcli.list_items_in_collection(target_id, org_id or "")
+        live = bwcli.list_items_in_collection(target_id, org_id or "") + _archived_in_target(target_id, personal=False)
 
     existing = _existing_fps(live)
 
@@ -187,6 +270,9 @@ def process_vault(vault_name: str, entries: list[dict], personal: bool,
             counts["skipped"] += 1
             continue
         label = item.get("name") or "?"
+        trimmed = clamp_for_create(item)
+        if trimmed:
+            print(f"  [{vault_name}] {label}: trimmed oversized {', '.join(trimmed)}")
         try:
             outcome = _create_and_archive(item, entry["files"], personal, org_id)
             counts[outcome] += 1
@@ -205,6 +291,8 @@ def main() -> None:
     parser.add_argument("--vault", metavar="NAME", help="Process only this vault name")
     parser.add_argument("--personal", action="store_true", help="Personal mode (folders, not collections)")
     parser.add_argument("--dry-run", action="store_true", help="Print the plan; write nothing")
+    parser.add_argument("--dedupe", action="store_true",
+                        help="Trash newer duplicate archived items instead of importing (keeps the oldest copy)")
     args = parser.parse_args()
 
     config = _load_json(Path(args.config))
@@ -224,6 +312,14 @@ def main() -> None:
         manifest = [v for v in manifest if v["vaultName"] == args.vault]
 
     print("archived.py — archived items → Bitwarden archive")
+
+    if args.dedupe:
+        bwcli.ensure_session(account.get("bitwardenServer", "us"), account.get("bitwardenEmail"))
+        print(f"\nAccount: {name}{' (personal mode)' if personal else ''} — dedupe{' [dry run]' if args.dry_run else ''}")
+        for entry in manifest:
+            dedupe_vault(entry["vaultName"], personal, org_id, args.dry_run)
+        return
+
     export_data, files_map = onepux.parse_export(Path(account["puxPath"]), work_dir / "files")
     per_vault = collect_archived(export_data, files_map, manifest, account.get("vaultRename", {}), org_id or "")
 
